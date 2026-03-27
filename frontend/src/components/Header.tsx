@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useInterwovenKit, useUsernameQuery } from '@initia/interwovenkit-react'
 import { WalletMenu, ConnectedMenu } from './WalletMenu'
 
-type Tab = 'swap' | 'pools' | 'earn' | 'stats'
+type Tab = 'swap' | 'pools' | 'earn' | 'bridge' | 'stats' | 'leaderboard'
 
 interface Props {
   tab: Tab
@@ -21,10 +21,12 @@ export default function Header({ tab, onTabChange }: Props) {
     : null
 
   const tabs: { id: Tab; label: string }[] = [
-    { id: 'swap',  label: 'Swap'  },
-    { id: 'pools', label: 'Pools' },
-    { id: 'earn',  label: 'Earn'  },
-    { id: 'stats', label: 'Stats' },
+    { id: 'swap',        label: 'Swap'        },
+    { id: 'pools',       label: 'Pools'       },
+    { id: 'earn',        label: 'Earn'        },
+    { id: 'bridge',      label: 'Bridge'      },
+    { id: 'stats',       label: 'Stats'       },
+    { id: 'leaderboard', label: 'Leaderboard' },
   ]
 
   return (

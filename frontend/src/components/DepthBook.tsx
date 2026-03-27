@@ -76,20 +76,110 @@ function computeDepth(pool: PoolData): Depth {
   return { asks: [...asks].reverse(), bids, midPrice, spread, spreadPct, pool }
 }
 
-// ── On-chain fetcher ───────────────────────────────────────────────────────────
+// ── Exchange + demo fallbacks ─────────────────────────────────────────────────
+type Source = 'onchain' | 'exchange' | 'demo'
+
 type FetchResult =
-  | { ok: true;  depth: Depth }
-  | { ok: false; reason: 'no_pool' | 'rpc_error'; detail?: string }
+  | { ok: true;  depth: Depth; source: Source }
+  | { ok: false; reason: 'rpc_error'; detail?: string }
 
 const ZERO_ADDR = '0x0000000000000000000000000000000000000000'
 
+const APPROX_USD: Record<string, number> = {
+  USDC: 1, USDT: 1, INIT: 1.24, WBTC: 65000, ETH: 3400,
+}
+
+function getBybitSymbol(a: Token, b: Token): { symbol: string; invert: boolean } | null {
+  const s = a.symbol, t = b.symbol
+  if (s === 'INIT'  && (t === 'USDC' || t === 'USDT')) return { symbol: 'INITUSDT', invert: false }
+  if ((s === 'USDC' || s === 'USDT') && t === 'INIT')  return { symbol: 'INITUSDT', invert: true  }
+  if (s === 'WBTC'  && (t === 'USDC' || t === 'USDT')) return { symbol: 'BTCUSDT',  invert: false }
+  if ((s === 'USDC' || s === 'USDT') && t === 'WBTC')  return { symbol: 'BTCUSDT',  invert: true  }
+  if (s === 'ETH'   && (t === 'USDC' || t === 'USDT')) return { symbol: 'ETHUSDT',  invert: false }
+  if ((s === 'USDC' || s === 'USDT') && t === 'ETH')   return { symbol: 'ETHUSDT',  invert: true  }
+  if (s === 'ETH'   && t === 'WBTC')                   return { symbol: 'ETHBTC',   invert: false }
+  if (s === 'WBTC'  && t === 'ETH')                    return { symbol: 'ETHBTC',   invert: true  }
+  return null
+}
+
+async function fetchFromExchange(tokenIn: Token, tokenOut: Token): Promise<Depth | null> {
+  const info = getBybitSymbol(tokenIn, tokenOut)
+  if (!info) return null
+  try {
+    const res  = await fetch(
+      `https://api.bybit.com/v5/market/orderbook?category=spot&symbol=${info.symbol}&limit=${LEVELS}`
+    )
+    if (!res.ok) return null
+    const json = await res.json()
+    const book = json?.result
+    if (!book?.b?.length || !book?.a?.length) return null
+
+    // book.b = bids high→low [[price, size]…], book.a = asks low→high
+    type Row = [string, string]
+    let rawBids: [number, number][] = (book.b as Row[]).map(([p, s]) => [parseFloat(p), parseFloat(s)])
+    let rawAsks: [number, number][] = (book.a as Row[]).map(([p, s]) => [parseFloat(p), parseFloat(s)])
+
+    if (info.invert) {
+      // Swap & invert: asks of INITUSDT become bids of USDC/INIT and vice-versa
+      const newBids: [number, number][] = (book.a as Row[])
+        .map(([p, s]): [number, number] => [1 / parseFloat(p), parseFloat(s) * parseFloat(p)])
+        .sort((a, b) => b[0] - a[0])
+      const newAsks: [number, number][] = (book.b as Row[])
+        .map(([p, s]): [number, number] => [1 / parseFloat(p), parseFloat(s) * parseFloat(p)])
+        .sort((a, b) => a[0] - b[0])
+      rawBids = newBids
+      rawAsks = newAsks
+    }
+
+    // Build cumulative DepthLevel arrays
+    function toLevels(raw: [number, number][]): DepthLevel[] {
+      let cum = 0
+      return raw.map(([price, size]) => {
+        cum += size
+        return { price, size, total: cum, pct: 0 }
+      })
+    }
+
+    const bids = toLevels(rawBids)                 // best bid first (high→low)
+    const asks = toLevels(rawAsks).reverse()        // display high→low (reversed from exchange)
+
+    const maxTotal = Math.max(bids.at(-1)?.total ?? 0, asks[0]?.total ?? 0)
+    if (maxTotal > 0) {
+      bids.forEach(l => { l.pct = (l.total / maxTotal) * 100 })
+      asks.forEach(l => { l.pct = (l.total / maxTotal) * 100 })
+    }
+
+    const bestBid  = rawBids[0]?.[0] ?? 0
+    const bestAsk  = rawAsks[0]?.[0] ?? 0
+    const midPrice  = (bestBid + bestAsk) / 2
+    const spread    = bestAsk - bestBid
+    const spreadPct = midPrice > 0 ? (spread / midPrice) * 100 : 0
+    const pool: PoolData = { poolAddress: info.symbol, rIn: 0, rOut: 0 }
+
+    return { asks, bids, midPrice, spread, spreadPct, pool }
+  } catch { return null }
+}
+
+function demoDepth(tokenIn: Token, tokenOut: Token): Depth {
+  const pIn  = APPROX_USD[tokenIn.symbol]  ?? 1
+  const pOut = APPROX_USD[tokenOut.symbol] ?? 1
+  const rIn  = 690_000 / pIn
+  const rOut = 690_000 / pOut
+  const pool: PoolData = { poolAddress: ZERO_ADDR, rIn, rOut }
+  return computeDepth(pool)
+}
+
 async function fetchDepth(tokenIn: Token, tokenOut: Token): Promise<FetchResult> {
-  // Contracts not deployed yet
-  if (
-    !CONTRACTS.POOL_REGISTRY ||
-    CONTRACTS.POOL_REGISTRY === ZERO_ADDR
-  ) {
-    return { ok: false, reason: 'no_pool' }
+  // Helper: try exchange → demo as last resort
+  async function fallback(): Promise<FetchResult> {
+    const ex = await fetchFromExchange(tokenIn, tokenOut)
+    if (ex) return { ok: true, depth: ex, source: 'exchange' }
+    return { ok: true, depth: demoDepth(tokenIn, tokenOut), source: 'demo' }
+  }
+
+  // No contracts deployed — go straight to exchange / demo
+  if (!CONTRACTS.POOL_REGISTRY || CONTRACTS.POOL_REGISTRY === ZERO_ADDR) {
+    return fallback()
   }
 
   try {
@@ -125,24 +215,22 @@ async function fetchDepth(tokenIn: Token, tokenOut: Token): Promise<FetchResult>
       const rIn  = Number(flipped ? rB : rA) / 10 ** tokenIn.decimals
       const rOut = Number(flipped ? rA : rB) / 10 ** tokenOut.decimals
 
-      if (rIn === 0 || rOut === 0) return { ok: false, reason: 'no_pool' }
+      if (rIn === 0 || rOut === 0) return fallback()
 
       const pool: PoolData = { poolAddress: cfg.poolAddress, rIn, rOut }
-      return { ok: true, depth: computeDepth(pool) }
+      return { ok: true, depth: computeDepth(pool), source: 'onchain' }
     }
 
-    return { ok: false, reason: 'no_pool' }
+    // No matching pool — use exchange
+    return fallback()
   } catch (e) {
     const msg = String(e)
-    // Connection refused / node not running → treat as no pool (silent)
     if (
-      msg.includes('ECONNREFUSED') ||
-      msg.includes('fetch failed') ||
-      msg.includes('Failed to fetch') ||
-      msg.includes('Network request failed') ||
+      msg.includes('ECONNREFUSED') || msg.includes('fetch failed') ||
+      msg.includes('Failed to fetch') || msg.includes('Network request failed') ||
       msg.includes('HTTP request failed')
     ) {
-      return { ok: false, reason: 'no_pool' }
+      return fallback()
     }
     return { ok: false, reason: 'rpc_error', detail: msg }
   }
@@ -175,7 +263,8 @@ interface Props {
 
 export function DepthBook({ tokenIn, tokenOut }: Props) {
   const [depth,     setDepth]     = useState<Depth | null>(null)
-  const [status,    setStatus]    = useState<'idle' | 'loading' | 'ok' | 'no_pool' | 'rpc_error'>('idle')
+  const [source,    setSource]    = useState<Source>('demo')
+  const [status,    setStatus]    = useState<'idle' | 'loading' | 'ok' | 'rpc_error'>('idle')
   const [detail,    setDetail]    = useState('')
   const [countdown, setCountdown] = useState(REFRESH_INTERVAL)
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null)
@@ -187,6 +276,7 @@ export function DepthBook({ tokenIn, tokenOut }: Props) {
     const result = await fetchDepth(tokenIn, tokenOut)
     if (result.ok) {
       setDepth(result.depth)
+      setSource(result.source)
       setStatus('ok')
       setUpdatedAt(new Date())
       setCountdown(REFRESH_INTERVAL)
@@ -230,22 +320,6 @@ export function DepthBook({ tokenIn, tokenOut }: Props) {
 
   if (status === 'idle' || (status === 'loading' && !depth)) {
     return <Placeholder pulse>Fetching depth…</Placeholder>
-  }
-
-  if (status === 'no_pool') {
-    return (
-      <div className="flex flex-col items-center justify-center h-full gap-2 px-4 text-center">
-        <svg className="w-7 h-7 text-gray-700" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-                d="M9 17v-2a4 4 0 018 0v2M3 21h18M12 3v4m0 0a4 4 0 014 4H8a4 4 0 014-4z" />
-        </svg>
-        <p className="text-xs text-gray-500">No active pool for this pair</p>
-        <button type="button" onClick={load}
-          className="text-xs text-brand-400 hover:text-brand-300 transition-colors">
-          Retry
-        </button>
-      </div>
-    )
   }
 
   if (status === 'rpc_error') {
@@ -315,14 +389,26 @@ export function DepthBook({ tokenIn, tokenOut }: Props) {
       {/* Footer — pool info + refresh */}
       <div className="shrink-0 border-t border-gray-800 px-3 py-1.5 flex items-center justify-between">
         <div className="flex items-center gap-1.5">
-          <span className="text-gray-700 font-sans">Pool</span>
-          <a
-            href={`#pool-${depth.pool.poolAddress}`}
-            title={depth.pool.poolAddress}
-            className="text-gray-600 hover:text-gray-400 transition-colors font-sans"
-          >
-            {fmtAddr(depth.pool.poolAddress)}
-          </a>
+          {source === 'demo' ? (
+            <span className="text-[9px] font-medium bg-yellow-900/30 text-yellow-500 border border-yellow-800/40 rounded px-1.5 py-0.5 font-sans">
+              Demo
+            </span>
+          ) : source === 'exchange' ? (
+            <span className="text-[9px] font-medium bg-blue-900/30 text-blue-400 border border-blue-800/40 rounded px-1.5 py-0.5 font-sans">
+              Bybit Spot
+            </span>
+          ) : (
+            <>
+              <span className="text-gray-700 font-sans">Pool</span>
+              <a
+                href={`#pool-${depth.pool.poolAddress}`}
+                title={depth.pool.poolAddress}
+                className="text-gray-600 hover:text-gray-400 transition-colors font-sans"
+              >
+                {fmtAddr(depth.pool.poolAddress)}
+              </a>
+            </>
+          )}
         </div>
         <div className="flex items-center gap-2">
           {updatedAt && (

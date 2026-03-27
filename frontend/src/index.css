@@ -9,6 +9,44 @@
 }
 
 
+/* ── Range slider thumb ─────────────────────────────────────────────────── */
+input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #14b8a6;
+  border: 2px solid #0d9488;
+  cursor: pointer;
+  box-shadow: 0 0 0 3px rgba(20, 184, 166, 0.15);
+  transition: box-shadow 0.15s ease;
+}
+input[type='range']::-webkit-slider-thumb:hover {
+  box-shadow: 0 0 0 5px rgba(20, 184, 166, 0.25);
+}
+input[type='range']::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #14b8a6;
+  border: 2px solid #0d9488;
+  cursor: pointer;
+  box-shadow: 0 0 0 3px rgba(20, 184, 166, 0.15);
+}
+input[type='range']:disabled::-webkit-slider-thumb {
+  background: #374151;
+  border-color: #4b5563;
+  box-shadow: none;
+  cursor: not-allowed;
+}
+input[type='range']:disabled::-moz-range-thumb {
+  background: #374151;
+  border-color: #4b5563;
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
 @layer components {
   .input-field {
     @apply w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-3

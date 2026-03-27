@@ -41,6 +41,11 @@ export const TOKENS: Token[] = ([
     logoUrl: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48/logo.png',
   },
   {
+    address: import.meta.env.VITE_TOKEN_USDT_ADDRESS as string,
+    symbol: 'USDT', name: 'Tether USD', decimals: 6, color: 'bg-green-600',
+    logoUrl: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0xdAC17F958D2ee523a2206206994597C13D831ec7/logo.png',
+  },
+  {
     address: import.meta.env.VITE_TOKEN_WBTC_ADDRESS as string,
     symbol: 'WBTC', name: 'Wrapped Bitcoin', decimals: 8, color: 'bg-orange-500',
     logoUrl: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599/logo.png',
@@ -89,6 +94,26 @@ export const ROUTER_ABI = [
     stateMutability: 'view',
     inputs: [],
     outputs: [{ name: '', type: 'uint64' }],
+  },
+  {
+    name: 'addLiquidity',
+    type: 'function',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'tokenA',         type: 'address' },
+      { name: 'tokenB',         type: 'address' },
+      { name: 'amountADesired', type: 'uint256' },
+      { name: 'amountBDesired', type: 'uint256' },
+      { name: 'amountAMin',     type: 'uint256' },
+      { name: 'amountBMin',     type: 'uint256' },
+      { name: 'to',             type: 'address' },
+      { name: 'deadline',       type: 'uint256' },
+    ],
+    outputs: [
+      { name: 'amountA',   type: 'uint256' },
+      { name: 'amountB',   type: 'uint256' },
+      { name: 'liquidity', type: 'uint256' },
+    ],
   },
 ] as const
 
@@ -140,6 +165,46 @@ export const AMM_ABI = [
     stateMutability: 'view',
     inputs: [],
     outputs: [{ name: '', type: 'address' }],
+  },
+  {
+    name: 'totalSupply',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ name: '', type: 'uint256' }],
+  },
+  {
+    name: 'balanceOf',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [{ name: 'account', type: 'address' }],
+    outputs: [{ name: '', type: 'uint256' }],
+  },
+  {
+    name: 'approve',
+    type: 'function',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'spender', type: 'address' },
+      { name: 'amount',  type: 'uint256' },
+    ],
+    outputs: [{ name: '', type: 'bool' }],
+  },
+  {
+    name: 'removeLiquidity',
+    type: 'function',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'liquidity',  type: 'uint256' },
+      { name: 'amountAMin', type: 'uint256' },
+      { name: 'amountBMin', type: 'uint256' },
+      { name: 'to',         type: 'address' },
+      { name: 'deadline',   type: 'uint256' },
+    ],
+    outputs: [
+      { name: 'amountA', type: 'uint256' },
+      { name: 'amountB', type: 'uint256' },
+    ],
   },
 ] as const
 

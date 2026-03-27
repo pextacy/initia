@@ -77,7 +77,7 @@ export function useSwap() {
         )],
       })
 
-      setTxHash(hash)
+      setTxHash((hash as { tx_hash?: string })?.tx_hash ?? '')
       setStatus('success')
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Swap failed'

@@ -193,13 +193,17 @@ function VolumeChart({ data }: { data: number[] }) {
       <p className="text-xs font-medium text-gray-400 mb-3">30-Day Volume</p>
       <div className="flex items-end gap-0.5 h-28">
         {data.map((v, i) => {
-          const h   = Math.round((v / max) * 100)
+          const h    = Math.round((v / max) * 100)
           const last = i === data.length - 1
           return (
-            <div key={i} className="flex-1 flex flex-col items-center justify-end group relative">
-              <div className={`w-full rounded-sm transition-all ${last ? 'bg-brand-500' : 'bg-gray-700 group-hover:bg-gray-600'}`}
-                   style={{ height: `${Math.max(h, 3)}%` }} />
-              <div className="absolute bottom-full mb-1 hidden group-hover:flex bg-gray-800 border border-gray-700 rounded px-1.5 py-0.5 text-[10px] text-gray-200 whitespace-nowrap z-10 pointer-events-none">
+            <div key={i} className="flex-1 relative h-full group">
+              <div
+                className={`absolute bottom-0 inset-x-0 rounded-sm transition-all ${
+                  last ? 'bg-brand-500' : 'bg-gray-700 group-hover:bg-gray-600'
+                }`}
+                style={{ height: `${Math.max(h, 3)}%` }}
+              />
+              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover:block bg-gray-800 border border-gray-700 rounded px-1.5 py-0.5 text-[10px] text-gray-200 whitespace-nowrap z-10 pointer-events-none">
                 {fmtUSD(v)}
               </div>
             </div>

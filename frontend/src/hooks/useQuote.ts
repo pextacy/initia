@@ -53,6 +53,12 @@ export function useQuote(
       return
     }
 
+    const ZERO = '0x0000000000000000000000000000000000000000'
+    if (!CONTRACTS.ROUTER || CONTRACTS.ROUTER === ZERO || !CONTRACTS.POOL_REGISTRY || CONTRACTS.POOL_REGISTRY === ZERO) {
+      setResult({ ...EMPTY, error: 'Contracts not deployed yet' })
+      return
+    }
+
     clearTimeout(debounceRef.current)
     debounceRef.current = setTimeout(async () => {
       setResult(r => ({ ...r, loading: true, error: null }))
