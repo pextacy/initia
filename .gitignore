@@ -1,0 +1,16 @@
+# Foundry
+out/
+cache/
+broadcast/
+
+# Node
+node_modules/
+frontend/dist/
+frontend/.env
+
+# Keys / secrets
+.env
+*.pem
+
+# OS
+.DS_Store

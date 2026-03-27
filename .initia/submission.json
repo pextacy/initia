@@ -1,0 +1,15 @@
+{
+  "project_name": "AppSwap",
+  "track": "DeFi",
+  "chain_id": "appswap-1",
+  "rollup_txn_link": "https://scan.testnet.initia.xyz/initiation-2/txs/YOUR_TX_HASH",
+  "interwovenkit_used": true,
+  "initia_native_features": [
+    "session_ux",
+    "interwoven_bridge",
+    "initia_usernames"
+  ],
+  "team": ["your-github-handle"],
+  "demo_video": "https://youtube.com/YOUR_DEMO",
+  "repo": "https://github.com/YOUR_HANDLE/appswap"
+}
