@@ -16,6 +16,7 @@ contract PoolRegistry {
     mapping(bytes32 => PoolConfig) public pools;
     mapping(address => bytes32[])  public rollupPools; // owner → pool IDs
     bytes32[] public allPoolIds;
+    mapping(bytes32 => uint256) private _poolIdIndex; // poolId → index in allPoolIds
 
     event PoolRegistered(bytes32 indexed poolId, string rollupChainId, address feeRecipient);
     event PoolUpdated(bytes32 indexed poolId, uint64 newFeeBps);
@@ -53,6 +54,7 @@ contract PoolRegistry {
         });
 
         rollupPools[msg.sender].push(poolId);
+        _poolIdIndex[poolId] = allPoolIds.length;
         allPoolIds.push(poolId);
         emit PoolRegistered(poolId, rollupChainId, msg.sender);
     }
@@ -73,6 +75,18 @@ contract PoolRegistry {
     function deregister_pool(bytes32 poolId) external {
         require(pools[poolId].feeRecipient == msg.sender, "not owner");
         pools[poolId].active = false;
+
+        // Remove from allPoolIds using swap-and-pop to avoid unbounded gas
+        uint256 idx  = _poolIdIndex[poolId];
+        uint256 last = allPoolIds.length - 1;
+        if (idx != last) {
+            bytes32 lastId = allPoolIds[last];
+            allPoolIds[idx] = lastId;
+            _poolIdIndex[lastId] = idx;
+        }
+        allPoolIds.pop();
+        delete _poolIdIndex[poolId];
+
         emit PoolDeregistered(poolId);
     }
 

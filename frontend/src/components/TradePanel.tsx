@@ -10,6 +10,55 @@ import { usePendingOrders } from '../hooks/usePendingOrders'
 const client = createPublicClient({ transport: http(RPC_URL) })
 const ZERO   = '0x0000000000000000000000000000000000000000'
 
+// ── Bybit symbol for each token (quote = USDT ≈ $1) ──────────────────────────
+const TOKEN_BYBIT: Record<string, string> = {
+  INIT: 'INITUSDT', WBTC: 'BTCUSDT', BTC: 'BTCUSDT',
+  ETH: 'ETHUSDT', TIA: 'TIAUSDT', milkTIA: 'TIAUSDT',
+  ATOM: 'ATOMUSDT', stATOM: 'ATOMUSDT', INJ: 'INJUSDT',
+  OSMO: 'OSMOUSDT', SEI: 'SEIUSDT', BNB: 'BNBUSDT', SOL: 'SOLUSDT',
+}
+
+function fmtAmt(n: number, dp = 4): string {
+  if (!isFinite(n) || n === 0) return '0'
+  if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(2)}B`
+  if (n >= 1_000_000)     return `${(n / 1_000_000).toFixed(2)}M`
+  if (n >= 1_000)         return `${(n / 1_000).toFixed(1)}K`
+  return n.toLocaleString('en-US', { maximumFractionDigits: dp })
+}
+
+// ── Live prices from Bybit for USD column ─────────────────────────────────────
+function useLivePrices() {
+  const [prices, setPrices] = useState<Record<string, number>>({ USDC: 1, USDT: 1 })
+
+  useEffect(() => {
+    const symbols = [...new Set(Object.values(TOKEN_BYBIT))]
+
+    async function fetch_() {
+      const updated: Record<string, number> = { USDC: 1, USDT: 1 }
+      await Promise.all(symbols.map(async sym => {
+        try {
+          const res  = await fetch(`https://api.bybit.com/v5/market/tickers?category=spot&symbol=${sym}`)
+          const json = await res.json()
+          const p    = parseFloat(json?.result?.list?.[0]?.lastPrice ?? '0')
+          if (p > 0) updated[sym] = p
+        } catch {}
+      }))
+      // Map bybit symbol → token symbol prices
+      const mapped: Record<string, number> = { USDC: 1, USDT: 1 }
+      for (const [tok, sym] of Object.entries(TOKEN_BYBIT)) {
+        if (updated[sym]) mapped[tok] = updated[sym]
+      }
+      setPrices(mapped)
+    }
+
+    fetch_()
+    const t = setInterval(fetch_, 15_000)
+    return () => clearInterval(t)
+  }, [])
+
+  return prices
+}
+
 type PanelTab = 'positions' | 'orders' | 'balances' | 'order_history' | 'position_history'
 
 const TABS: { id: PanelTab; label: string }[] = [
@@ -199,12 +248,13 @@ export function TradePanel() {
   const { positions, loading: posLoading }   = usePositions(hexAddress)
   const { balances,  loading: balLoading }   = useAllBalances(hexAddress)
   const { events,    loading: evtLoading }   = useOrderHistory(hexAddress)
+  const livePrices                           = useLivePrices()
 
   return (
     <div className="flex flex-col h-full bg-gray-950 border-t border-gray-800">
 
       {/* Tab bar */}
-      <div className="flex items-center border-b border-gray-800 shrink-0 overflow-x-auto">
+      <div className="flex items-center border-b border-gray-800 shrink-0">
         {TABS.map(t => (
           <button
             key={t.id}
@@ -341,8 +391,9 @@ export function TradePanel() {
                 </thead>
                 <tbody className="divide-y divide-gray-800/40">
                   {balances.map(({ token, balance }) => {
-                    const human = parseFloat(formatUnits(balance, token.decimals))
-                    const usd   = human * (({ USDC: 1, USDT: 1, INIT: 1.24, WBTC: 65000, ETH: 3400 } as Record<string, number>)[token.symbol] ?? 0)
+                    const human  = parseFloat(formatUnits(balance, token.decimals))
+                    const price  = livePrices[token.symbol] ?? 0
+                    const usd    = price > 0 ? human * price : 0
                     return (
                       <tr key={token.address} className="hover:bg-gray-800/30">
                         <Td>
@@ -357,12 +408,10 @@ export function TradePanel() {
                           </div>
                         </Td>
                         <Td className="tabular-nums text-gray-200">
-                          {human.toLocaleString(undefined, { maximumFractionDigits: token.decimals <= 6 ? token.decimals : 6 })}
+                          {fmtAmt(human, token.decimals <= 6 ? token.decimals : 6)}
                         </Td>
                         <Td className="tabular-nums text-gray-500">
-                          {usd > 0
-                            ? `$${usd.toLocaleString(undefined, { maximumFractionDigits: 2 })}`
-                            : '—'}
+                          {usd > 0 ? `$${fmtAmt(usd, 2)}` : '—'}
                         </Td>
                       </tr>
                     )
@@ -409,10 +458,10 @@ export function TradePanel() {
                           </div>
                         </Td>
                         <Td className="text-red-400 tabular-nums">
-                          -{parseFloat(inAmt).toFixed(4)} {tIn?.symbol}
+                          -{fmtAmt(parseFloat(inAmt))} {tIn?.symbol}
                         </Td>
                         <Td className="text-green-400 tabular-nums">
-                          +{parseFloat(outAmt).toFixed(4)} {tOut?.symbol}
+                          +{fmtAmt(parseFloat(outAmt))} {tOut?.symbol}
                         </Td>
                         <Td className="font-mono text-gray-600">
                           {e.txHash ? `${e.txHash.slice(0, 8)}…${e.txHash.slice(-6)}` : `#${e.blockNumber}`}

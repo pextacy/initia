@@ -9,34 +9,6 @@ import {
 const client = createPublicClient({ transport: http(RPC_URL) })
 const ZERO   = '0x0000000000000000000000000000000000000000'
 
-// ── Demo fallback data (shown before contracts are deployed) ──────────────────
-const DEMO_CHAINS = [
-  { chainId: 'appswap-1',      pools: 3, tvl: 1_247_800, fees: 12_134, volShare: 42 },
-  { chainId: 'gaming-chain-1', pools: 2, tvl:   891_200, fees:  8_102, volShare: 28 },
-  { chainId: 'defi-hub-1',     pools: 1, tvl:   468_900, fees:  5_497, volShare: 19 },
-  { chainId: 'nft-rollup-1',   pools: 1, tvl:   239_420, fees:  3_201, volShare: 11 },
-]
-const DEMO_TRADES = [
-  { pair: 'INIT → USDC', from: 'alice.init',   amount: '$2,840',  chain: 'appswap-1',      cross: false, ago: '12s'  },
-  { pair: 'ETH → USDC',  from: '0xb3f2…9a1c', amount: '$18,200', chain: 'gaming-chain-1', cross: true,  ago: '38s'  },
-  { pair: 'USDC → INIT', from: 'bob.init',     amount: '$920',    chain: 'appswap-1',      cross: false, ago: '1m'   },
-  { pair: 'WBTC → USDC', from: '0x77aa…c3d0', amount: '$65,100', chain: 'defi-hub-1',     cross: true,  ago: '2m'   },
-  { pair: 'ETH → INIT',  from: 'carol.init',   amount: '$4,380',  chain: 'appswap-1',      cross: false, ago: '3m'   },
-  { pair: 'INIT → USDC', from: '0x1a4b…88ef', amount: '$740',    chain: 'nft-rollup-1',   cross: true,  ago: '5m'   },
-  { pair: 'USDC → ETH',  from: 'dave.init',    amount: '$11,600', chain: 'gaming-chain-1', cross: true,  ago: '7m'   },
-  { pair: 'WBTC → ETH',  from: '0xd9c1…0e22', amount: '$33,800', chain: 'appswap-1',      cross: false, ago: '9m'   },
-]
-function genVol(): number[] {
-  const out: number[] = []
-  let v = 180_000
-  for (let i = 0; i < 30; i++) {
-    v = Math.max(30_000, v * (0.88 + Math.random() * 0.28))
-    out.push(Math.round(v))
-  }
-  return out
-}
-const DEMO_VOL = genVol()
-
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function tokenSym(addr: string) {
   return TOKENS.find(t => t.address.toLowerCase() === addr.toLowerCase())?.symbol ?? addr.slice(0, 6) + '…'
@@ -66,12 +38,19 @@ interface Stats {
 }
 
 // ── On-chain loader ───────────────────────────────────────────────────────────
+function emptyStats(): Stats {
+  return {
+    tvl: 0, vol24h: 0, totalFees: 0, poolCount: 0, rollupCount: 0,
+    chains: [], pairs: [], trades: [], vol30d: Array(30).fill(0), isDemo: false,
+  }
+}
+
 async function loadStats(): Promise<Stats> {
   const noContracts =
     !CONTRACTS.POOL_REGISTRY || CONTRACTS.POOL_REGISTRY === ZERO ||
     !CONTRACTS.ROUTER         || CONTRACTS.ROUTER         === ZERO
 
-  if (noContracts) return demo()
+  if (noContracts) return emptyStats()
 
   try {
     const latest = await client.getBlockNumber()
@@ -117,6 +96,21 @@ async function loadStats(): Promise<Stats> {
     let totalVolUSD = 0
     const trades: TradeRow[] = []
 
+    // Compute per-day volumes for the 30-day chart
+    let vol30d = Array(30).fill(0)
+    let msPerBlock = 2000  // default: 2s/block (Initia)
+    if (swapLogs.length > 0 && latest > from) {
+      try {
+        const [fromBlockData, latestBlockData] = await Promise.all([
+          client.getBlock({ blockNumber: from }),
+          client.getBlock({ blockNumber: latest }),
+        ])
+        const timeDiff = Number(latestBlockData.timestamp - fromBlockData.timestamp) * 1000
+        const blockDiff = Number(latest - from)
+        if (blockDiff > 0 && timeDiff > 0) msPerBlock = timeDiff / blockDiff
+      } catch { /* use default */ }
+    }
+
     for (const log of swapLogs) {
       const { user, tokenIn, tokenOut, amountIn } = log.args as { user: string; tokenIn: string; tokenOut: string; amountIn: bigint; amountOut: bigint; poolId: string }
       const sym  = tokenSym(tokenIn)
@@ -128,6 +122,10 @@ async function loadStats(): Promise<Stats> {
       if (trades.length < 8) {
         trades.push({ pair, from: `${user.slice(0, 6)}…${user.slice(-4)}`, amount: fmtUSD(usd), chain: CHAIN_ID, cross: false, ago: 'recent' })
       }
+      // Bucket into 30-day chart
+      const blockDiff = Number(latest - (log.blockNumber ?? latest))
+      const dayIdx = Math.min(29, Math.floor((blockDiff * msPerBlock) / 86400_000))
+      vol30d[29 - dayIdx] += usd
     }
 
     // Fee events
@@ -146,33 +144,20 @@ async function loadStats(): Promise<Stats> {
     }
     chains.forEach(c => { c.fees = feeMap.get(c.chainId) ?? 0 })
 
-    const liveStats: Stats = {
+    return {
       tvl: totalTvl,
       vol24h: totalVolUSD,
       totalFees,
       poolCount: cfgs.filter(c => c.active).length,
       rollupCount: chainMap.size,
-      chains: chains.length ? chains : DEMO_CHAINS,
+      chains,
       pairs: [...pairMap.values()].sort((a, b) => b.volUSD - a.volUSD),
-      trades: trades.length ? trades : DEMO_TRADES,
-      vol30d: DEMO_VOL,
+      trades,
+      vol30d,
       isDemo: false,
     }
-    // Pad demo data for sections with no events yet
-    if (!liveStats.chains.length) liveStats.chains = DEMO_CHAINS
-    if (!liveStats.trades.length) liveStats.trades = DEMO_TRADES
-    return liveStats
 
-  } catch { return demo() }
-}
-
-function demo(): Stats {
-  return {
-    tvl: 2_847_320, vol24h: 482_150, totalFees: 28_934,
-    poolCount: 7, rollupCount: 4,
-    chains: DEMO_CHAINS, pairs: [], trades: DEMO_TRADES,
-    vol30d: DEMO_VOL, isDemo: true,
-  }
+  } catch { return emptyStats() }
 }
 
 // ── UI helpers ────────────────────────────────────────────────────────────────
@@ -187,7 +172,7 @@ function StatCard({ label, value, sub, accent }: { label: string; value: string;
 }
 
 function VolumeChart({ data }: { data: number[] }) {
-  const max = Math.max(...data)
+  const max = Math.max(...data, 1)  // guard against all-zero
   return (
     <div>
       <p className="text-xs font-medium text-gray-400 mb-3">30-Day Volume</p>

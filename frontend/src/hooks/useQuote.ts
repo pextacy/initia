@@ -90,15 +90,22 @@ export function useQuote(
           args: [bestPoolId],
         }) as { tokenA: string; poolAddress: string; rollupChainId: string }
 
-        const [reserveA, reserveB] = await client.readContract({
-          address: poolConfig.poolAddress as `0x${string}`,
-          abi: AMM_ABI,
-          functionName: 'getReserves',
-        }) as [bigint, bigint]
+        const [[reserveA, reserveB], ammTokenA] = await Promise.all([
+          client.readContract({
+            address: poolConfig.poolAddress as `0x${string}`,
+            abi: AMM_ABI,
+            functionName: 'getReserves',
+          }) as Promise<[bigint, bigint]>,
+          client.readContract({
+            address: poolConfig.poolAddress as `0x${string}`,
+            abi: AMM_ABI,
+            functionName: 'tokenA',
+          }) as Promise<string>,
+        ])
 
-        // 3. Determine which reserve is the "in" side
-        const isTokenA = tokenIn.toLowerCase() === poolConfig.tokenA.toLowerCase()
-        const reserveIn = isTokenA ? reserveA : reserveB
+        // 3. AMM sorts tokens by address — use amm.tokenA() to align reserves correctly
+        const ammIsIn   = ammTokenA.toLowerCase() === tokenIn.toLowerCase()
+        const reserveIn = ammIsIn ? reserveA : reserveB
 
         // 4. Price impact: what fraction of the pool depth are we consuming?
         // Impact = netAmountIn / (reserveIn + netAmountIn) * 100

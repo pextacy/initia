@@ -76,7 +76,7 @@ export function Portfolio() {
           <p className="text-2xl font-semibold text-white mt-0.5">
             {loading
               ? <span className="text-gray-600 animate-pulse">—</span>
-              : `$${totalUsd.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+              : `$${totalUsd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
             }
           </p>
         </div>
@@ -134,12 +134,12 @@ export function Portfolio() {
               <div className="text-right">
                 <p className="text-sm font-medium text-gray-200">
                   {parseFloat(b.formatted) > 0
-                    ? parseFloat(b.formatted).toLocaleString(undefined, { maximumFractionDigits: 4 })
+                    ? parseFloat(b.formatted).toLocaleString('en-US', { maximumFractionDigits: 4 })
                     : '0'}
                 </p>
                 <p className="text-xs text-gray-600">
                   {b.usd > 0
-                    ? `$${b.usd.toLocaleString(undefined, { maximumFractionDigits: 2 })}`
+                    ? `$${b.usd.toLocaleString('en-US', { maximumFractionDigits: 2 })}`
                     : '—'
                   }
                 </p>

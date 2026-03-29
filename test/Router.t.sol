@@ -20,6 +20,13 @@ contract TestToken is ERC20 {
 }
 
 contract RouterTest is Test {
+    // Mirror Router events for vm.expectEmit
+    event CrossRollupSwapInitiated(
+        address indexed user,
+        bytes32 indexed bridgeId,
+        bytes32 indexed escrowId,
+        string destinationChainId
+    );
     Router         router;
     PoolRegistry   registry;
     FeeDistributor distributor;
@@ -194,7 +201,7 @@ contract RouterTest is Test {
 
         // Only check that the first topic (user address) matches
         vm.expectEmit(true, false, false, false);
-        emit Router.CrossRollupSwapInitiated(alice, bytes32(0), bytes32(0), "");
+        emit CrossRollupSwapInitiated(alice, bytes32(0), bytes32(0), "");
 
         router.swap(address(tokenA), address(tokenC), 100e18, 1, block.timestamp + 300);
         vm.stopPrank();

@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import { createPublicClient, http } from 'viem'
 import { CONTRACTS, POOL_REGISTRY_ABI, AMM_ABI, RPC_URL } from '../constants'
 import type { Token } from '../constants'
+import { getBybitSymbol } from '../utils/bybit'
 
 const client = createPublicClient({ transport: http(RPC_URL) })
 
@@ -76,34 +77,17 @@ function computeDepth(pool: PoolData): Depth {
   return { asks: [...asks].reverse(), bids, midPrice, spread, spreadPct, pool }
 }
 
-// ── Exchange + demo fallbacks ─────────────────────────────────────────────────
-type Source = 'onchain' | 'exchange' | 'demo'
+// ── Exchange fallback ─────────────────────────────────────────────────────────
+type Source = 'onchain' | 'exchange'
 
 type FetchResult =
   | { ok: true;  depth: Depth; source: Source }
-  | { ok: false; reason: 'rpc_error'; detail?: string }
+  | { ok: false; reason: 'rpc_error' | 'no_data'; detail?: string }
 
 const ZERO_ADDR = '0x0000000000000000000000000000000000000000'
 
-const APPROX_USD: Record<string, number> = {
-  USDC: 1, USDT: 1, INIT: 1.24, WBTC: 65000, ETH: 3400,
-}
-
-function getBybitSymbol(a: Token, b: Token): { symbol: string; invert: boolean } | null {
-  const s = a.symbol, t = b.symbol
-  if (s === 'INIT'  && (t === 'USDC' || t === 'USDT')) return { symbol: 'INITUSDT', invert: false }
-  if ((s === 'USDC' || s === 'USDT') && t === 'INIT')  return { symbol: 'INITUSDT', invert: true  }
-  if (s === 'WBTC'  && (t === 'USDC' || t === 'USDT')) return { symbol: 'BTCUSDT',  invert: false }
-  if ((s === 'USDC' || s === 'USDT') && t === 'WBTC')  return { symbol: 'BTCUSDT',  invert: true  }
-  if (s === 'ETH'   && (t === 'USDC' || t === 'USDT')) return { symbol: 'ETHUSDT',  invert: false }
-  if ((s === 'USDC' || s === 'USDT') && t === 'ETH')   return { symbol: 'ETHUSDT',  invert: true  }
-  if (s === 'ETH'   && t === 'WBTC')                   return { symbol: 'ETHBTC',   invert: false }
-  if (s === 'WBTC'  && t === 'ETH')                    return { symbol: 'ETHBTC',   invert: true  }
-  return null
-}
-
 async function fetchFromExchange(tokenIn: Token, tokenOut: Token): Promise<Depth | null> {
-  const info = getBybitSymbol(tokenIn, tokenOut)
+  const info = getBybitSymbol(tokenIn.symbol, tokenOut.symbol)
   if (!info) return null
   try {
     const res  = await fetch(
@@ -160,21 +144,11 @@ async function fetchFromExchange(tokenIn: Token, tokenOut: Token): Promise<Depth
   } catch { return null }
 }
 
-function demoDepth(tokenIn: Token, tokenOut: Token): Depth {
-  const pIn  = APPROX_USD[tokenIn.symbol]  ?? 1
-  const pOut = APPROX_USD[tokenOut.symbol] ?? 1
-  const rIn  = 690_000 / pIn
-  const rOut = 690_000 / pOut
-  const pool: PoolData = { poolAddress: ZERO_ADDR, rIn, rOut }
-  return computeDepth(pool)
-}
-
 async function fetchDepth(tokenIn: Token, tokenOut: Token): Promise<FetchResult> {
-  // Helper: try exchange → demo as last resort
   async function fallback(): Promise<FetchResult> {
     const ex = await fetchFromExchange(tokenIn, tokenOut)
     if (ex) return { ok: true, depth: ex, source: 'exchange' }
-    return { ok: true, depth: demoDepth(tokenIn, tokenOut), source: 'demo' }
+    return { ok: false, reason: 'no_data' }
   }
 
   // No contracts deployed — go straight to exchange / demo
@@ -205,15 +179,23 @@ async function fetchDepth(tokenIn: Token, tokenOut: Token): Promise<FetchResult>
       const match = (cfgA === aIn && cfgB === aOut) || (cfgA === aOut && cfgB === aIn)
       if (!match || !cfg.active) continue
 
-      const [rA, rB] = await client.readContract({
-        address:      cfg.poolAddress as `0x${string}`,
-        abi:          AMM_ABI,
-        functionName: 'getReserves',
-      }) as [bigint, bigint]
+      const [[rA, rB], ammTokenA] = await Promise.all([
+        client.readContract({
+          address:      cfg.poolAddress as `0x${string}`,
+          abi:          AMM_ABI,
+          functionName: 'getReserves',
+        }) as Promise<[bigint, bigint]>,
+        client.readContract({
+          address:      cfg.poolAddress as `0x${string}`,
+          abi:          AMM_ABI,
+          functionName: 'tokenA',
+        }) as Promise<string>,
+      ])
 
-      const flipped = cfgA === aOut
-      const rIn  = Number(flipped ? rB : rA) / 10 ** tokenIn.decimals
-      const rOut = Number(flipped ? rA : rB) / 10 ** tokenOut.decimals
+      // AMM sorts tokens by address — align to tokenIn/tokenOut using amm.tokenA()
+      const ammIsIn  = ammTokenA.toLowerCase() === aIn
+      const rIn  = Number(ammIsIn ? rA : rB) / 10 ** tokenIn.decimals
+      const rOut = Number(ammIsIn ? rB : rA) / 10 ** tokenOut.decimals
 
       if (rIn === 0 || rOut === 0) return fallback()
 
@@ -263,8 +245,8 @@ interface Props {
 
 export function DepthBook({ tokenIn, tokenOut }: Props) {
   const [depth,     setDepth]     = useState<Depth | null>(null)
-  const [source,    setSource]    = useState<Source>('demo')
-  const [status,    setStatus]    = useState<'idle' | 'loading' | 'ok' | 'rpc_error'>('idle')
+  const [source,    setSource]    = useState<Source>('exchange')
+  const [status,    setStatus]    = useState<'idle' | 'loading' | 'ok' | 'rpc_error' | 'no_data'>('idle')
   const [detail,    setDetail]    = useState('')
   const [countdown, setCountdown] = useState(REFRESH_INTERVAL)
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null)
@@ -282,7 +264,7 @@ export function DepthBook({ tokenIn, tokenOut }: Props) {
       setCountdown(REFRESH_INTERVAL)
     } else {
       setDepth(null)
-      setStatus(result.reason)
+      setStatus(result.reason as 'rpc_error' | 'no_data')
       setDetail(result.detail ?? '')
     }
   }, [tokenIn, tokenOut])
@@ -322,10 +304,12 @@ export function DepthBook({ tokenIn, tokenOut }: Props) {
     return <Placeholder pulse>Fetching depth…</Placeholder>
   }
 
-  if (status === 'rpc_error') {
+  if (status === 'rpc_error' || status === 'no_data') {
     return (
       <div className="flex flex-col items-center justify-center h-full gap-2 px-4 text-center">
-        <p className="text-xs text-red-400">RPC error</p>
+        <p className="text-xs text-gray-500">
+          {status === 'no_data' ? 'No market data available' : 'RPC error'}
+        </p>
         {detail && <p className="text-[10px] text-gray-600 break-all line-clamp-3">{detail}</p>}
         <button type="button" onClick={load}
           className="text-xs text-brand-400 hover:text-brand-300 transition-colors">
@@ -389,14 +373,8 @@ export function DepthBook({ tokenIn, tokenOut }: Props) {
       {/* Footer — pool info + refresh */}
       <div className="shrink-0 border-t border-gray-800 px-3 py-1.5 flex items-center justify-between">
         <div className="flex items-center gap-1.5">
-          {source === 'demo' ? (
-            <span className="text-[9px] font-medium bg-yellow-900/30 text-yellow-500 border border-yellow-800/40 rounded px-1.5 py-0.5 font-sans">
-              Demo
-            </span>
-          ) : source === 'exchange' ? (
-            <span className="text-[9px] font-medium bg-blue-900/30 text-blue-400 border border-blue-800/40 rounded px-1.5 py-0.5 font-sans">
-              Bybit Spot
-            </span>
+          {source === 'exchange' ? (
+            <span />
           ) : (
             <>
               <span className="text-gray-700 font-sans">Pool</span>

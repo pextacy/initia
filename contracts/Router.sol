@@ -126,8 +126,11 @@ contract Router is ReentrancyGuard, Ownable {
             // Same-chain: approve AMM, swap, send output to user
             IERC20(tokenIn).forceApprove(pool.poolAddress, amountInNet);
             amountOut = IAMM(pool.poolAddress).swap(tokenIn, amountInNet, minAmountOut);
-            IERC20(tokenOut).safeTransfer(msg.sender, amountOut);
+            // Defense in depth: enforce slippage at Router level too.
+            // AMM.swap() already checks internally, but if an external pool
+            // is ever registered without its own slippage guard this catches it.
             require(amountOut >= minAmountOut, "slippage exceeded");
+            IERC20(tokenOut).safeTransfer(msg.sender, amountOut);
         } else {
             // Cross-rollup: async — tokens are locked in escrow and bridged.
             // amountOut is 0; the user receives tokens on the destination chain via bridge ACK.

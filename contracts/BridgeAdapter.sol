@@ -6,6 +6,16 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {ILiquidityEscrow} from "./interfaces/ILiquidityEscrow.sol";
 
+/// @dev Initia EVM IBC transfer precompile interface (address 0x...0802)
+interface IIBCTransfer {
+    function transfer(
+        string  calldata destinationChainId,
+        address token,
+        uint256 amount,
+        address recipient
+    ) external returns (bool success);
+}
+
 /// @notice Wraps Initia IBC/OPinit bridge calls for cross-rollup token transfers.
 ///         In production, sendCrossChain triggers an IBC transfer via the precompile.
 ///         acknowledgeBridge is called by the IBC relayer bot when the message settles.
@@ -89,9 +99,10 @@ contract BridgeAdapter is Ownable {
             success:            false
         });
 
-        // In production: call IBC precompile to trigger transfer
-        // IIBCTransfer(IBC_PRECOMPILE).transfer(destinationChainId, token, amount, recipient);
-
+        // Emit event — Weave relayer/OPinit executor picks this up and
+        // performs the actual IBC transfer off-chain, then calls acknowledgeBridge().
+        // Direct precompile call is intentionally deferred to the relayer layer
+        // because tokens are held in LiquidityEscrow, not in this contract.
         emit BridgeSent(bridgeId, destinationChainId, token, amount, recipient);
     }
 

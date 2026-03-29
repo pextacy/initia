@@ -2,13 +2,10 @@ import { useState, useEffect } from 'react'
 import { createPublicClient, http } from 'viem'
 import { CONTRACTS, POOL_REGISTRY_ABI, AMM_ABI, RPC_URL, TOKENS } from '../constants'
 import type { Token } from '../constants'
+import { getBybitSymbol, APPROX_USD } from '../utils/bybit'
 
 const client = createPublicClient({ transport: http(RPC_URL) })
 const ZERO   = '0x0000000000000000000000000000000000000000'
-
-const APPROX_USD: Record<string, number> = {
-  USDC: 1, USDT: 1, INIT: 1.24, WBTC: 65000, ETH: 3400,
-}
 
 function roughUSD(sym: string, n: number) {
   return (APPROX_USD[sym] ?? 1) * n
@@ -23,22 +20,8 @@ interface PairStats {
   vol24hUSD: number
 }
 
-// ── Bybit REST helpers (public API, no key needed) ─────────────────────────────
-function getBybitSymbol(a: Token, b: Token): { symbol: string; invert: boolean } | null {
-  const s = a.symbol, t = b.symbol
-  if (s === 'INIT'  && (t === 'USDC' || t === 'USDT')) return { symbol: 'INITUSDT', invert: false }
-  if ((s === 'USDC' || s === 'USDT') && t === 'INIT')  return { symbol: 'INITUSDT', invert: true  }
-  if (s === 'WBTC'  && (t === 'USDC' || t === 'USDT')) return { symbol: 'BTCUSDT',  invert: false }
-  if ((s === 'USDC' || s === 'USDT') && t === 'WBTC')  return { symbol: 'BTCUSDT',  invert: true  }
-  if (s === 'ETH'   && (t === 'USDC' || t === 'USDT')) return { symbol: 'ETHUSDT',  invert: false }
-  if ((s === 'USDC' || s === 'USDT') && t === 'ETH')   return { symbol: 'ETHUSDT',  invert: true  }
-  if (s === 'ETH'   && t === 'WBTC')                   return { symbol: 'ETHBTC',   invert: false }
-  if (s === 'WBTC'  && t === 'ETH')                    return { symbol: 'ETHBTC',   invert: true  }
-  return null
-}
-
 async function fetchFromBybit(tokenIn: Token, tokenOut: Token): Promise<PairStats | null> {
-  const info = getBybitSymbol(tokenIn, tokenOut)
+  const info = getBybitSymbol(tokenIn.symbol, tokenOut.symbol)
   if (!info) return null
   try {
     const res  = await fetch(`https://api.bybit.com/v5/market/tickers?category=spot&symbol=${info.symbol}`)
@@ -61,27 +44,10 @@ async function fetchFromBybit(tokenIn: Token, tokenOut: Token): Promise<PairStat
       change24h = -change24h
     }
 
-    return { price, change24h, high24h, low24h, vol24hUSD, tvlUSD: vol24hUSD * 6 }
+    return { price, change24h, high24h, low24h, vol24hUSD, tvlUSD: 0 }
   } catch { return null }
 }
 
-function fallbackStats(tokenIn?: Token, tokenOut?: Token): PairStats {
-  const sym = `${tokenIn?.symbol}/${tokenOut?.symbol}`
-  let price = 1.0
-  if (sym === 'WBTC/USDC') price = 65000
-  else if (sym === 'ETH/USDC')  price = 3400
-  else if (sym === 'INIT/USDC') price = 1.24
-  else if (sym === 'USDC/INIT') price = 0.806
-  else if (sym === 'ETH/WBTC')  price = 0.052
-  return {
-    price,
-    change24h: 3.01,
-    high24h:   price * 1.0362,
-    low24h:    price * 0.9658,
-    tvlUSD:    1_380_000,
-    vol24hUSD: 232_000,
-  }
-}
 
 async function fetchPairStats(tokenIn: Token, tokenOut: Token): Promise<PairStats | null> {
   // 1. Try on-chain pool registry
@@ -105,20 +71,26 @@ async function fetchPairStats(tokenIn: Token, tokenOut: Token): Promise<PairStat
         const cfgB = cfg.tokenB.toLowerCase()
         if (!((cfgA === aIn && cfgB === aOut) || (cfgA === aOut && cfgB === aIn))) continue
 
-        const [rA, rB] = await client.readContract({
-          address: cfg.poolAddress as `0x${string}`,
-          abi: AMM_ABI, functionName: 'getReserves',
-        }) as [bigint, bigint]
+        const [[rA, rB], ammTokenA] = await Promise.all([
+          client.readContract({
+            address: cfg.poolAddress as `0x${string}`,
+            abi: AMM_ABI, functionName: 'getReserves',
+          }) as Promise<[bigint, bigint]>,
+          client.readContract({
+            address: cfg.poolAddress as `0x${string}`,
+            abi: AMM_ABI, functionName: 'tokenA',
+          }) as Promise<string>,
+        ])
 
-        const flipped = cfgA === aOut
-        const rIn  = Number(flipped ? rB : rA) / 10 ** tokenIn.decimals
-        const rOut = Number(flipped ? rA : rB) / 10 ** tokenOut.decimals
+        // AMM sorts tokens by address — align to tokenIn/tokenOut using amm.tokenA()
+        const ammIsIn  = ammTokenA.toLowerCase() === aIn
+        const rIn  = Number(ammIsIn ? rA : rB) / 10 ** tokenIn.decimals
+        const rOut = Number(ammIsIn ? rB : rA) / 10 ** tokenOut.decimals
         const price = rOut / rIn
 
         const symA = TOKENS.find(t => t.address.toLowerCase() === cfgA)?.symbol ?? 'UNKNOWN'
         const symB = TOKENS.find(t => t.address.toLowerCase() === cfgB)?.symbol ?? 'UNKNOWN'
-        const tvlUSD    = roughUSD(symA, rIn) + roughUSD(symB, rOut)
-        const vol24hUSD = tvlUSD * 0.17
+        const tvlUSD = roughUSD(symA, rIn) + roughUSD(symB, rOut)
 
         // Merge on-chain price/tvl with Bybit 24h stats
         const bybit = await fetchFromBybit(tokenIn, tokenOut)
@@ -127,7 +99,7 @@ async function fetchPairStats(tokenIn: Token, tokenOut: Token): Promise<PairStat
           change24h: bybit?.change24h ?? 0,
           high24h:   bybit?.high24h   ?? price * 1.035,
           low24h:    bybit?.low24h    ?? price * 0.967,
-          tvlUSD, vol24hUSD: bybit?.vol24hUSD ?? vol24hUSD,
+          tvlUSD, vol24hUSD: bybit?.vol24hUSD ?? 0,
         }
       }
     } catch { /* RPC not available */ }
@@ -138,8 +110,9 @@ async function fetchPairStats(tokenIn: Token, tokenOut: Token): Promise<PairStat
 }
 
 function fmtUSD(n: number) {
-  if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(2)}M`
-  if (n >= 1_000)     return `$${(n / 1_000).toFixed(1)}K`
+  if (n >= 1_000_000_000) return `$${(n / 1_000_000_000).toFixed(2)}B`
+  if (n >= 1_000_000)     return `$${(n / 1_000_000).toFixed(2)}M`
+  if (n >= 1_000)         return `$${(n / 1_000).toFixed(1)}K`
   return `$${n.toFixed(0)}`
 }
 
@@ -156,14 +129,19 @@ interface Props {
 }
 
 export function MarketBar({ tokenIn, tokenOut }: Props) {
-  const [stats, setStats] = useState<PairStats | null>(null)
+  const [stats,   setStats]   = useState<PairStats | null>(null)
+  const [noData,  setNoData]  = useState(false)
 
   useEffect(() => {
-    if (!tokenIn || !tokenOut) { setStats(null); return }
+    if (!tokenIn || !tokenOut) { setStats(null); setNoData(false); return }
     let cancelled = false
+    setStats(null); setNoData(false)
     ;(async () => {
       const live = await fetchPairStats(tokenIn, tokenOut)
-      if (!cancelled) setStats(live ?? fallbackStats(tokenIn, tokenOut))
+      if (!cancelled) {
+        setStats(live ?? null)
+        setNoData(!live)
+      }
     })()
     return () => { cancelled = true }
   }, [tokenIn?.address, tokenOut?.address])
@@ -201,6 +179,10 @@ export function MarketBar({ tokenIn, tokenOut }: Props) {
           <Stat value={fmtUSD(stats.tvlUSD)}    sub="TVL" />
           <Stat value="0.25%" sub="Fee" />
         </>
+      ) : noData ? (
+        <div className="flex items-center px-4 py-2">
+          <span className="text-xs text-gray-600">No market data available</span>
+        </div>
       ) : (
         <div className="flex items-center gap-6 px-4 py-2">
           {[...Array(5)].map((_, i) => (

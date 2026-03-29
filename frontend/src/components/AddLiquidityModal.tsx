@@ -129,13 +129,13 @@ export function AddLiquidityModal({ pool, onClose }: Props) {
               <div className="flex justify-between text-xs">
                 <span className="text-gray-400">{pool.tokenASymbol}</span>
                 <span className="text-gray-200 tabular-nums font-medium">
-                  {Number(reserves.a).toLocaleString(undefined, { maximumFractionDigits: 4 })}
+                  {Number(reserves.a).toLocaleString('en-US', { maximumFractionDigits: 4 })}
                 </span>
               </div>
               <div className="flex justify-between text-xs">
                 <span className="text-gray-400">{pool.tokenBSymbol}</span>
                 <span className="text-gray-200 tabular-nums font-medium">
-                  {Number(reserves.b).toLocaleString(undefined, { maximumFractionDigits: 4 })}
+                  {Number(reserves.b).toLocaleString('en-US', { maximumFractionDigits: 4 })}
                 </span>
               </div>
               {reserves && parseFloat(reserves.a) > 0 && (

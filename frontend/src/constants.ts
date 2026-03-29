@@ -29,12 +29,17 @@ export interface Token {
   logoUrl?: string
 }
 
+// Every token bridged into the Initia / appswap-1 ecosystem.
+// Address for each is set via a VITE_TOKEN_*_ADDRESS env var after deployment.
+// Tokens whose env var is not set are silently excluded from the UI.
 export const TOKENS: Token[] = ([
+  // ── Initia native ──────────────────────────────────────────────────────────
   {
     address: import.meta.env.VITE_TOKEN_INIT_ADDRESS as string,
     symbol: 'INIT', name: 'Initia', decimals: 18, color: 'bg-brand-600',
     logoUrl: 'https://raw.githubusercontent.com/initia-labs/initia-registry/main/images/INIT.png',
   },
+  // ── Stablecoins ────────────────────────────────────────────────────────────
   {
     address: import.meta.env.VITE_TOKEN_USDC_ADDRESS as string,
     symbol: 'USDC', name: 'USD Coin', decimals: 6, color: 'bg-blue-500',
@@ -45,6 +50,7 @@ export const TOKENS: Token[] = ([
     symbol: 'USDT', name: 'Tether USD', decimals: 6, color: 'bg-green-600',
     logoUrl: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0xdAC17F958D2ee523a2206206994597C13D831ec7/logo.png',
   },
+  // ── Wrapped major assets ───────────────────────────────────────────────────
   {
     address: import.meta.env.VITE_TOKEN_WBTC_ADDRESS as string,
     symbol: 'WBTC', name: 'Wrapped Bitcoin', decimals: 8, color: 'bg-orange-500',
@@ -54,6 +60,54 @@ export const TOKENS: Token[] = ([
     address: import.meta.env.VITE_TOKEN_ETH_ADDRESS as string,
     symbol: 'ETH', name: 'Wrapped Ether', decimals: 18, color: 'bg-indigo-500',
     logoUrl: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/info/logo.png',
+  },
+  // ── IBC-bridged Cosmos ecosystem tokens ───────────────────────────────────
+  {
+    address: import.meta.env.VITE_TOKEN_TIA_ADDRESS as string,
+    symbol: 'TIA', name: 'Celestia', decimals: 6, color: 'bg-purple-500',
+    logoUrl: 'https://raw.githubusercontent.com/cosmos/chain-registry/master/celestia/images/tia.png',
+  },
+  {
+    address: import.meta.env.VITE_TOKEN_ATOM_ADDRESS as string,
+    symbol: 'ATOM', name: 'Cosmos Hub', decimals: 6, color: 'bg-sky-500',
+    logoUrl: 'https://raw.githubusercontent.com/cosmos/chain-registry/master/cosmoshub/images/atom.png',
+  },
+  {
+    address: import.meta.env.VITE_TOKEN_INJ_ADDRESS as string,
+    symbol: 'INJ', name: 'Injective', decimals: 18, color: 'bg-blue-600',
+    logoUrl: 'https://raw.githubusercontent.com/cosmos/chain-registry/master/injective/images/inj.png',
+  },
+  {
+    address: import.meta.env.VITE_TOKEN_OSMO_ADDRESS as string,
+    symbol: 'OSMO', name: 'Osmosis', decimals: 6, color: 'bg-pink-500',
+    logoUrl: 'https://raw.githubusercontent.com/cosmos/chain-registry/master/osmosis/images/osmo.png',
+  },
+  {
+    address: import.meta.env.VITE_TOKEN_SEI_ADDRESS as string,
+    symbol: 'SEI', name: 'Sei Network', decimals: 6, color: 'bg-red-500',
+    logoUrl: 'https://raw.githubusercontent.com/cosmos/chain-registry/master/sei/images/sei.png',
+  },
+  // ── Liquid staking tokens (IBC via Milkyway / Stride) ─────────────────────
+  {
+    address: import.meta.env.VITE_TOKEN_MILKTIA_ADDRESS as string,
+    symbol: 'milkTIA', name: 'Milkyway Staked TIA', decimals: 6, color: 'bg-violet-500',
+    logoUrl: 'https://raw.githubusercontent.com/initia-labs/initia-registry/main/images/milkTIA.png',
+  },
+  {
+    address: import.meta.env.VITE_TOKEN_STATOM_ADDRESS as string,
+    symbol: 'stATOM', name: 'Stride Staked ATOM', decimals: 6, color: 'bg-cyan-600',
+    logoUrl: 'https://raw.githubusercontent.com/cosmos/chain-registry/master/stride/images/statom.png',
+  },
+  // ── Cross-chain wrapped assets ─────────────────────────────────────────────
+  {
+    address: import.meta.env.VITE_TOKEN_BNB_ADDRESS as string,
+    symbol: 'BNB', name: 'BNB', decimals: 18, color: 'bg-yellow-500',
+    logoUrl: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/binance/info/logo.png',
+  },
+  {
+    address: import.meta.env.VITE_TOKEN_SOL_ADDRESS as string,
+    symbol: 'SOL', name: 'Solana', decimals: 9, color: 'bg-green-400',
+    logoUrl: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/solana/info/logo.png',
   },
 ] as Token[]).filter(t => !!t.address)
 

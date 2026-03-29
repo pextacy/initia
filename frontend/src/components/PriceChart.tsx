@@ -11,6 +11,7 @@ function toTVSymbol(tokenIn?: Token, tokenOut?: Token): string {
     'INIT/USDC': 'BYBIT:INITUSDT',
     'USDC/INIT': 'BYBIT:INITUSDT',
     'INIT/USDT': 'BYBIT:INITUSDT',
+    'USDT/INIT': 'BYBIT:INITUSDT',
     'WBTC/USDC': 'BINANCE:BTCUSDC',
     'USDC/WBTC': 'BINANCE:BTCUSDC',
     'ETH/USDC':  'BINANCE:ETHUSDC',

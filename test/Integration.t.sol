@@ -66,8 +66,8 @@ contract IntegrationTest is Test {
         // Seed pool: 10,000 INIT + 12,400 USDC (price ~1.24)
         address ammTokenA = amm.tokenA();
         (uint256 amtA, uint256 amtB) = ammTokenA == address(init)
-            ? (10_000e18, 12_400e6)
-            : (12_400e6,  10_000e18);
+            ? (uint256(10_000e18), uint256(12_400e6))
+            : (uint256(12_400e6),  uint256(10_000e18));
 
         IERC20(ammTokenA).approve(address(amm), type(uint256).max);
         IERC20(amm.tokenB()).approve(address(amm), type(uint256).max);
@@ -150,10 +150,10 @@ contract IntegrationTest is Test {
         router.swap(address(init), address(usdc), 100e18, 1, block.timestamp + 600);
         vm.stopPrank();
 
-        // Fee recipient is deployer (set in setUp as registry msg.sender)
-        uint256 pending = feeDist.pendingFees(address(usdc), deployer);
+        // Fee is taken from the input token (INIT), not the output token
+        uint256 pending = feeDist.pendingFees(address(init), deployer);
         assertGt(pending, 0, "should have pending fees for rollup owner");
-        console.log("Pending fees (deployer, USDC raw):", pending);
+        console.log("Pending fees (deployer, INIT raw):", pending);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -166,16 +166,17 @@ contract IntegrationTest is Test {
         router.swap(address(init), address(usdc), 100e18, 1, block.timestamp + 600);
         vm.stopPrank();
 
-        uint256 pending    = feeDist.pendingFees(address(usdc), deployer);
-        uint256 balBefore  = usdc.balanceOf(deployer);
+        // Fee token is INIT (the input token of the swap)
+        uint256 pending    = feeDist.pendingFees(address(init), deployer);
+        uint256 balBefore  = init.balanceOf(deployer);
 
         vm.prank(deployer);
-        feeDist.claim(address(usdc));
+        feeDist.claim(address(init));
 
-        uint256 balAfter = usdc.balanceOf(deployer);
+        uint256 balAfter = init.balanceOf(deployer);
         assertEq(balAfter - balBefore, pending, "claimed amount should match pending");
-        assertEq(feeDist.pendingFees(address(usdc), deployer), 0, "pending should be 0 after claim");
-        console.log("Claimed fees:", pending, "USDC (raw)");
+        assertEq(feeDist.pendingFees(address(init), deployer), 0, "pending should be 0 after claim");
+        console.log("Claimed fees:", pending, "INIT (raw)");
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -191,7 +192,7 @@ contract IntegrationTest is Test {
         IERC20(tokA).approve(address(amm), type(uint256).max);
         IERC20(tokB).approve(address(amm), type(uint256).max);
 
-        (uint256 amtA, uint256 amtB) = tokA == address(init) ? (1_000e18, 1_240e6) : (1_240e6, 1_000e18);
+        (uint256 amtA, uint256 amtB) = tokA == address(init) ? (uint256(1_000e18), uint256(1_240e6)) : (uint256(1_240e6), uint256(1_000e18));
         amm.addLiquidity(amtA, amtB, 0, 0, alice);
         vm.stopPrank();
 
@@ -209,7 +210,7 @@ contract IntegrationTest is Test {
         vm.startPrank(alice);
         IERC20(tokA).approve(address(amm), type(uint256).max);
         IERC20(tokA == address(init) ? address(usdc) : address(init)).approve(address(amm), type(uint256).max);
-        (uint256 amtA, uint256 amtB) = tokA == address(init) ? (1_000e18, 1_240e6) : (1_240e6, 1_000e18);
+        (uint256 amtA, uint256 amtB) = tokA == address(init) ? (uint256(1_000e18), uint256(1_240e6)) : (uint256(1_240e6), uint256(1_000e18));
         amm.addLiquidity(amtA, amtB, 0, 0, alice);
 
         uint256 lp = amm.balanceOf(alice);
@@ -236,8 +237,9 @@ contract IntegrationTest is Test {
         }
         vm.stopPrank();
 
-        uint256 pending = feeDist.pendingFees(address(usdc), deployer);
+        // Fee token is INIT (input token of each swap)
+        uint256 pending = feeDist.pendingFees(address(init), deployer);
         assertGt(pending, 0, "fees should accumulate across swaps");
-        console.log("Fees after 5 swaps (USDC raw):", pending);
+        console.log("Fees after 5 swaps (INIT raw):", pending);
     }
 }

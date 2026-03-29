@@ -2,10 +2,12 @@ import { useState } from 'react'
 import type { ImpactLevel } from '../hooks/useQuote'
 
 interface Props {
-  slippage:    number       // basis points (e.g. 50 = 0.5%)
-  onChange:    (bps: number) => void
-  impactLevel?: ImpactLevel  // supplied by SwapUI once a quote exists
-  impactPct?:  string        // e.g. "2.34"
+  slippage:       number
+  onChange:       (bps: number) => void
+  impactLevel?:   ImpactLevel
+  impactPct?:     string
+  balance?:       string   // human-readable balance of pay token
+  balanceSymbol?: string
 }
 
 const PRESETS = [
@@ -14,7 +16,7 @@ const PRESETS = [
   { label: '1.0%', bps: 100 },
 ]
 
-export function SlippageSettings({ slippage, onChange, impactLevel, impactPct }: Props) {
+export function SlippageSettings({ slippage, onChange, impactLevel, impactPct, balance, balanceSymbol }: Props) {
   const [open, setOpen] = useState(false)
   const customVal = PRESETS.some(p => p.bps === slippage) ? '' : (slippage / 100).toFixed(2)
 
@@ -106,6 +108,18 @@ export function SlippageSettings({ slippage, onChange, impactLevel, impactPct }:
                   label="Price impact"
                   value={`${impactPct}%`}
                   color={impactLevel === 'high' ? 'text-red-400' : impactLevel === 'medium' ? 'text-yellow-400' : 'text-green-400'}
+                />
+              )}
+              {balance !== undefined && balanceSymbol && (
+                <InfoRow
+                  label="Wallet balance"
+                  value={(() => {
+                    const n = parseFloat(balance)
+                    if (!isFinite(n) || n === 0) return `0 ${balanceSymbol}`
+                    if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M ${balanceSymbol}`
+                    if (n >= 1_000)     return `${(n / 1_000).toFixed(1)}K ${balanceSymbol}`
+                    return `${n.toFixed(4)} ${balanceSymbol}`
+                  })()}
                 />
               )}
             </div>

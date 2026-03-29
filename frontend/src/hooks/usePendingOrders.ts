@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
+export { getBybitSymbol } from '../utils/bybit'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 export type OrderType = 'limit' | 'stop_market' | 'tp_market' | 'tp_limit' | 'oracle_limit'
@@ -39,22 +40,6 @@ function saveToStorage(orders: PendingOrder[]) {
   } catch {}
 }
 
-// ── Bybit symbol mapping ───────────────────────────────────────────────────────
-export function getBybitInfo(
-  tokenInSymbol: string,
-  tokenOutSymbol: string,
-): { symbol: string; invert: boolean } | null {
-  const a = tokenInSymbol, b = tokenOutSymbol
-  if (a === 'INIT'  && (b === 'USDC' || b === 'USDT')) return { symbol: 'INITUSDT', invert: false }
-  if ((a === 'USDC' || a === 'USDT') && b === 'INIT')  return { symbol: 'INITUSDT', invert: true  }
-  if (a === 'WBTC'  && (b === 'USDC' || b === 'USDT')) return { symbol: 'BTCUSDT',  invert: false }
-  if ((a === 'USDC' || a === 'USDT') && b === 'WBTC')  return { symbol: 'BTCUSDT',  invert: true  }
-  if (a === 'ETH'   && (b === 'USDC' || b === 'USDT')) return { symbol: 'ETHUSDT',  invert: false }
-  if ((a === 'USDC' || a === 'USDT') && b === 'ETH')   return { symbol: 'ETHUSDT',  invert: true  }
-  if (a === 'ETH'   && b === 'WBTC')                   return { symbol: 'ETHBTC',   invert: false }
-  if (a === 'WBTC'  && b === 'ETH')                    return { symbol: 'ETHBTC',   invert: true  }
-  return null
-}
 
 // Fetch current Bybit spot price for a symbol
 async function fetchBybitPrice(symbol: string): Promise<number> {
@@ -130,7 +115,7 @@ export function usePendingOrders() {
   const addOrder = useCallback((order: Omit<PendingOrder, 'id' | 'createdAt' | 'status'>) => {
     const newOrder: PendingOrder = {
       ...order,
-      id:        `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      id:        crypto.randomUUID(),
       createdAt: Date.now(),
       status:    'pending',
     }

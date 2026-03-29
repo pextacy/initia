@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { createPublicClient, http, formatUnits, encodeFunctionData } from 'viem'
 import { useInterwovenKit } from '@initia/interwovenkit-react'
-import { RPC_URL, TOKENS, CONTRACTS, CHAIN_ID, POOL_REGISTRY_ABI, AMM_ABI } from '../constants'
+import { RPC_URL, TOKENS, CONTRACTS, CHAIN_ID, POOL_REGISTRY_ABI, AMM_ABI, ROUTER_EVENTS_ABI } from '../constants'
 import { AddLiquidityModal } from './AddLiquidityModal'
 import { TokenIcon }         from './TokenIcon'
 
@@ -21,9 +21,10 @@ function roughUSD(sym: string, n: number) {
 }
 
 function fmtUSD(n: number) {
-  if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(2)}M`
-  if (n >= 1_000)     return `$${(n / 1_000).toFixed(1)}K`
-  if (n > 0)          return `$${n.toFixed(0)}`
+  if (n >= 1_000_000_000) return `$${(n / 1_000_000_000).toFixed(2)}B`
+  if (n >= 1_000_000)     return `$${(n / 1_000_000).toFixed(2)}M`
+  if (n >= 1_000)         return `$${(n / 1_000).toFixed(1)}K`
+  if (n > 0)              return `$${n.toFixed(0)}`
   return '—'
 }
 
@@ -108,6 +109,31 @@ export function PoolTable() {
           client.readContract({ address: CONTRACTS.POOL_REGISTRY as `0x${string}`, abi: POOL_REGISTRY_ABI, functionName: 'get_pool', args: [id] })
         )) as Cfg[]
 
+        // Fetch 24h swap volume per pool from SwapExecuted events
+        const vol24hByPool = new Map<string, number>()
+        const ZERO_ADDR = '0x0000000000000000000000000000000000000000'
+        if (CONTRACTS.ROUTER && CONTRACTS.ROUTER !== ZERO_ADDR) {
+          try {
+            const latestBlock = await client.getBlockNumber()
+            const fromBlock   = latestBlock > 10000n ? latestBlock - 10000n : 0n
+            const swapLogs    = await client.getContractEvents({
+              address:   CONTRACTS.ROUTER as `0x${string}`,
+              abi:       ROUTER_EVENTS_ABI,
+              eventName: 'SwapExecuted',
+              fromBlock, toBlock: latestBlock,
+            })
+            for (const log of swapLogs) {
+              const { tokenIn, amountIn, poolId } = log.args as {
+                tokenIn: string; amountIn: bigint; poolId: string
+              }
+              const info = tokenInfo(tokenIn)
+              const usd  = roughUSD(info.symbol, Number(amountIn) / 10 ** info.decimals)
+              const key  = (poolId as string).toLowerCase()
+              vol24hByPool.set(key, (vol24hByPool.get(key) ?? 0) + usd)
+            }
+          } catch { /* no events */ }
+        }
+
         const withData = await Promise.all(
           configs.map(async (cfg, i) => {
             const a = tokenInfo(cfg.tokenA)
@@ -115,15 +141,24 @@ export function PoolTable() {
             let reserveA: string | undefined, reserveB: string | undefined
             let tvlUSD = 0
             try {
-              const [rA, rB] = await client.readContract({
-                address: cfg.poolAddress as `0x${string}`, abi: AMM_ABI, functionName: 'getReserves',
-              }) as [bigint, bigint]
+              // AMM sorts tokens by address in constructor — getReserves() uses AMM's order,
+              // not PoolRegistry's. Read amm.tokenA() to align them correctly.
+              const [rawReserves, ammTokenA] = await Promise.all([
+                client.readContract({
+                  address: cfg.poolAddress as `0x${string}`, abi: AMM_ABI, functionName: 'getReserves',
+                }) as Promise<[bigint, bigint]>,
+                client.readContract({
+                  address: cfg.poolAddress as `0x${string}`, abi: AMM_ABI, functionName: 'tokenA',
+                }) as Promise<string>,
+              ])
+              const ammMatchesCfg = ammTokenA.toLowerCase() === cfg.tokenA.toLowerCase()
+              const [rA, rB] = ammMatchesCfg ? rawReserves : [rawReserves[1], rawReserves[0]]
               reserveA = formatUnits(rA, a.decimals)
               reserveB = formatUnits(rB, b.decimals)
               tvlUSD   = roughUSD(a.symbol, parseFloat(reserveA)) + roughUSD(b.symbol, parseFloat(reserveB))
             } catch { /* no reserves */ }
 
-            const vol24hUSD = tvlUSD * 0.17
+            const vol24hUSD = vol24hByPool.get((ids[i] as string).toLowerCase()) ?? 0
             const feePct    = Number(cfg.feeBps) / 10000
             const aprPct    = tvlUSD > 0 ? (vol24hUSD * feePct * 365 / tvlUSD) * 100 : 0
 
@@ -151,7 +186,7 @@ export function PoolTable() {
   }, [refresh])
 
   return (
-    <div className="space-y-5 max-w-5xl mx-auto">
+    <div className="space-y-5">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -284,9 +319,9 @@ export function PoolTable() {
                     </div>
                     {p.reserveA && p.reserveB && (
                       <p className="text-[10px] text-gray-600 mt-0.5 pl-9">
-                        {Number(p.reserveA).toLocaleString(undefined, { maximumFractionDigits: 2 })} {p.tokenASymbol}
+                        {Number(p.reserveA).toLocaleString('en-US', { maximumFractionDigits: 2 })} {p.tokenASymbol}
                         {' · '}
-                        {Number(p.reserveB).toLocaleString(undefined, { maximumFractionDigits: 2 })} {p.tokenBSymbol}
+                        {Number(p.reserveB).toLocaleString('en-US', { maximumFractionDigits: 2 })} {p.tokenBSymbol}
                       </p>
                     )}
                   </td>

@@ -125,8 +125,8 @@ export function TokenSelector({ selected, onChange, exclude, label }: Props) {
         <button
           type="button"
           onClick={openModal}
-          className="flex items-center gap-2 bg-gray-800 hover:bg-gray-700 border border-gray-700
-                     rounded-xl px-3 py-2 transition-colors min-w-[130px]"
+          className="w-full flex items-center gap-2 bg-gray-800 hover:bg-gray-700 border border-gray-700
+                     rounded-xl px-3 py-2 transition-colors"
         >
           {selected ? (
             <>

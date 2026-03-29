@@ -6,7 +6,8 @@ import { TokenIcon }        from './TokenIcon'
 import { useQuote }         from '../hooks/useQuote'
 import { useTokenBalance }  from '../hooks/useTokenBalance'
 import { useSwap }          from '../hooks/useSwap'
-import { usePendingOrders, getBybitInfo } from '../hooks/usePendingOrders'
+import { usePendingOrders } from '../hooks/usePendingOrders'
+import { getBybitSymbol as getBybitInfo } from '../utils/bybit'
 import { type Token, CHAIN_ID } from '../constants'
 
 // ── Order types ────────────────────────────────────────────────────────────────
@@ -34,7 +35,7 @@ function usdValue(amount: string, symbol?: string): string | null {
   const val = parseFloat(amount) * price
   if (val < 0.01) return null
   return val >= 1000
-    ? `~$${val.toLocaleString(undefined, { maximumFractionDigits: 0 })}`
+    ? `~$${val.toLocaleString('en-US', { maximumFractionDigits: 0 })}`
     : `~$${val.toFixed(2)}`
 }
 
@@ -61,8 +62,18 @@ export function SwapUI({
   function setTokenOut(t: Token | undefined) { setTokenOutInt(t); onTokenOutChange?.(t) }
 
   // ── Trade direction & order type ────────────────────────────────────────────
-  const [side,      setSide]      = useState<Side>('long')
-  const [orderType, setOrderType] = useState<AllOrderType>('market')
+  const [side,        setSide]        = useState<Side>('long')
+  const [orderType,   setOrderType]   = useState<AllOrderType>('market')
+  const [orderDdOpen, setOrderDdOpen] = useState(false)
+  const orderDdRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!orderDdOpen) return
+    const handler = (e: MouseEvent) => {
+      if (orderDdRef.current && !orderDdRef.current.contains(e.target as Node)) setOrderDdOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [orderDdOpen])
 
   // For Long: payToken=tokenIn, receiveToken=tokenOut
   // For Short: payToken=tokenOut, receiveToken=tokenIn
@@ -316,7 +327,7 @@ export function SwapUI({
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
-    <div className="flex flex-col h-full overflow-y-auto">
+    <div className="flex flex-col h-full overflow-y-auto overflow-x-hidden">
       <div className="space-y-2 p-3">
 
         {/* ── Long / Short toggle + slippage ─────────────────────────── */}
@@ -342,26 +353,65 @@ export function SwapUI({
             onChange={v => { setSlippage(v); reset() }}
             impactLevel={quote.impactLevel}
             impactPct={quote.priceImpact !== '0.00' ? quote.priceImpact : undefined}
+            balance={balIn}
+            balanceSymbol={payToken?.symbol}
           />
         </div>
 
         {/* ── Order type row ──────────────────────────────────────────── */}
-        <div className="flex items-center gap-1 overflow-x-auto pb-0.5 scrollbar-hide">
-          {(Object.keys(ORDER_LABELS) as AllOrderType[]).map(ot => (
-            <button
-              key={ot}
-              type="button"
-              onClick={() => { setOrderType(ot); reset() }}
-              className={`shrink-0 px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors whitespace-nowrap ${
-                orderType === ot
-                  ? 'bg-gray-700 text-gray-100 border border-gray-600'
-                  : 'text-gray-500 hover:text-gray-300 border border-transparent'
-              }`}
-            >
-              {ORDER_LABELS[ot]}
-            </button>
-          ))}
-        </div>
+        {(() => {
+          const PRIMARY: AllOrderType[]   = ['market', 'limit', 'stop_market']
+          const SECONDARY: AllOrderType[] = ['tp_market', 'tp_limit', 'oracle_limit', 'scale']
+          const inSecondary = SECONDARY.includes(orderType)
+          return (
+            <div className="flex items-center gap-1">
+              {PRIMARY.map(ot => (
+                <button key={ot} type="button"
+                  onClick={() => { setOrderType(ot); reset() }}
+                  className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors whitespace-nowrap ${
+                    orderType === ot
+                      ? 'bg-gray-700 text-gray-100 border border-gray-600'
+                      : 'text-gray-500 hover:text-gray-300 border border-transparent'
+                  }`}
+                >
+                  {ORDER_LABELS[ot]}
+                </button>
+              ))}
+              {/* Dropdown for secondary types */}
+              <div className="relative" ref={orderDdRef}>
+                <button type="button"
+                  onClick={() => setOrderDdOpen(v => !v)}
+                  className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors whitespace-nowrap flex items-center gap-0.5 ${
+                    inSecondary
+                      ? 'bg-gray-700 text-gray-100 border border-gray-600'
+                      : 'text-gray-500 hover:text-gray-300 border border-transparent'
+                  }`}
+                >
+                  {inSecondary ? ORDER_LABELS[orderType] : 'More'}
+                  <svg className={`w-2.5 h-2.5 transition-transform ${orderDdOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 10 6">
+                    <path d="M1 1l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                </button>
+                {orderDdOpen && (
+                  <div className="absolute left-0 top-full mt-1 z-50 bg-gray-900 border border-gray-700 rounded-lg shadow-xl overflow-hidden min-w-[100px]">
+                    {SECONDARY.map(ot => (
+                      <button key={ot} type="button"
+                        onClick={() => { setOrderType(ot); reset(); setOrderDdOpen(false) }}
+                        className={`w-full text-left px-3 py-2 text-[11px] font-medium transition-colors ${
+                          orderType === ot
+                            ? 'bg-gray-700 text-gray-100'
+                            : 'text-gray-400 hover:bg-gray-800 hover:text-gray-200'
+                        }`}
+                      >
+                        {ORDER_LABELS[ot]}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )
+        })()}
 
         {/* ── Token pair selectors ────────────────────────────────────── */}
         <div className="flex items-center gap-2">
@@ -408,7 +458,7 @@ export function SwapUI({
           {payToken && hexAddress && (
             <div className="flex items-center justify-between mt-2 pt-1.5 border-t border-gray-700/40">
               <span className="text-[10px] text-gray-600">
-                Balance: {balLoading ? '…' : Number(balIn).toFixed(4)} {payToken.symbol}
+                Balance: {balLoading ? '…' : (() => { const n = parseFloat(balIn); if (!isFinite(n) || n === 0) return '0.0000'; if (n >= 1_000_000) return n.toLocaleString('en-US', { maximumFractionDigits: 2 }); return n.toFixed(4) })()} {payToken.symbol}
               </span>
               <div className="flex items-center gap-1">
                 {[25, 50, 75].map(pct => (
@@ -599,17 +649,17 @@ export function SwapUI({
             label="Fee (0.25%)"
             value={feeAmt && payToken ? `${feeAmt} ${payToken.symbol}` : '—'}
           />
-          <div className="flex items-center justify-between px-3 py-2">
-            <span className="text-xs text-gray-500">Route</span>
+          <div className="flex items-center justify-between gap-2 px-3 py-2">
+            <span className="text-xs text-gray-500 shrink-0">Route</span>
             {payToken && receiveToken ? (
               isCrossRollup ? (
-                <span className="flex items-center gap-1 text-[11px] font-medium text-purple-400">
+                <span className="flex items-center gap-1 text-[11px] font-medium text-purple-400 truncate">
                   {payToken.symbol} <span className="text-purple-600">→</span>
-                  <span className="bg-purple-900/40 border border-purple-700/40 rounded px-1 py-0.5 text-[9px]">Bridge</span>
+                  <span className="bg-purple-900/40 border border-purple-700/40 rounded px-1 py-0.5 text-[9px] shrink-0">Bridge</span>
                   <span className="text-purple-600">→</span> {receiveToken.symbol}
                 </span>
               ) : (
-                <span className="text-[11px] font-medium text-green-400">
+                <span className="text-[11px] font-medium text-green-400 truncate">
                   {payToken.symbol} → {receiveToken.symbol} · Direct
                 </span>
               )
@@ -677,9 +727,9 @@ export function SwapUI({
 // ── Sub-components ─────────────────────────────────────────────────────────────
 function InfoRow({ label, value, valueClass = '' }: { label: string; value: string; valueClass?: string }) {
   return (
-    <div className="flex items-center justify-between px-3 py-2">
-      <span className="text-xs text-gray-500">{label}</span>
-      <span className={`text-xs font-medium text-gray-300 ${valueClass}`}>{value}</span>
+    <div className="flex items-center justify-between gap-2 px-3 py-2">
+      <span className="text-xs text-gray-500 shrink-0">{label}</span>
+      <span className={`text-xs font-medium text-gray-300 truncate text-right ${valueClass}`}>{value}</span>
     </div>
   )
 }

@@ -14,6 +14,14 @@ function tokenInfo(address: string) {
   return { symbol: t?.symbol ?? address.slice(0, 6) + '…', decimals: t?.decimals ?? 18, token: t }
 }
 
+function fmtAmount(n: number, dp = 4): string {
+  if (!isFinite(n) || n === 0) return '0'
+  if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(2)}B`
+  if (n >= 1_000_000)     return `${(n / 1_000_000).toFixed(2)}M`
+  if (n >= 1_000)         return `${(n / 1_000).toFixed(1)}K`
+  return n.toLocaleString('en-US', { maximumFractionDigits: dp })
+}
+
 interface Position {
   poolId:        string
   poolAddress:   string
@@ -324,13 +332,13 @@ function RemoveLiquidityModal({
           <div className="flex items-center justify-between px-3 py-2.5">
             <span className="text-xs text-gray-500">You receive {position.symbolA}</span>
             <span className="text-xs font-medium text-gray-200">
-              {parseFloat(formatUnits(amountAOut, position.decimalsA)).toFixed(6)}
+              {fmtAmount(parseFloat(formatUnits(amountAOut, position.decimalsA)), 6)}
             </span>
           </div>
           <div className="flex items-center justify-between px-3 py-2.5">
             <span className="text-xs text-gray-500">You receive {position.symbolB}</span>
             <span className="text-xs font-medium text-gray-200">
-              {parseFloat(formatUnits(amountBOut, position.decimalsB)).toFixed(6)}
+              {fmtAmount(parseFloat(formatUnits(amountBOut, position.decimalsB)), 6)}
             </span>
           </div>
         </div>
@@ -513,10 +521,10 @@ export function LiquidityPositions() {
                   <div className="grid grid-cols-3 gap-2 mb-3">
                     <StatBox label="Pool TVL">
                       <span className="text-xs font-medium text-gray-200">
-                        {tvlA.toLocaleString(undefined, { maximumFractionDigits: 2 })} {pos.symbolA}
+                        {fmtAmount(tvlA)} {pos.symbolA}
                       </span>
                       <span className="text-[10px] text-gray-600 block">
-                        / {tvlB.toLocaleString(undefined, { maximumFractionDigits: 2 })} {pos.symbolB}
+                        / {fmtAmount(tvlB)} {pos.symbolB}
                       </span>
                     </StatBox>
                     <StatBox label="Your Share">
@@ -528,10 +536,10 @@ export function LiquidityPositions() {
                       {hasPosition ? (
                         <>
                           <span className="text-xs font-medium text-gray-200">
-                            {parseFloat(pos.userAmountA).toFixed(4)} {pos.symbolA}
+                            {fmtAmount(parseFloat(pos.userAmountA))} {pos.symbolA}
                           </span>
                           <span className="text-[10px] text-gray-600 block">
-                            {parseFloat(pos.userAmountB).toFixed(4)} {pos.symbolB}
+                            {fmtAmount(parseFloat(pos.userAmountB))} {pos.symbolB}
                           </span>
                         </>
                       ) : (
