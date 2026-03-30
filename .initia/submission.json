@@ -1,7 +1,7 @@
 {
   "project_name": "AppSwap",
   "repo_url": "https://github.com/pextacy/initia",
-  "commit_sha": "451611da71f1a18f3f878da92e18c2c74f2c3a2c",
+  "commit_sha": "16d3c1e721568a82af11c375e9228e0e2c805c9c",
   "rollup_chain_id": "evm-1",
   "deployed_address": "0x619bcF71Ae6b42F7120Eb650C99c431456D8E9d5",
   "vm": "evm",
