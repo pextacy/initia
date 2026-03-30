@@ -10,8 +10,8 @@ export const CONTRACTS = {
 // ============================================================
 // Chain configuration
 // ============================================================
-export const CHAIN_ID        = 'appswap-1'
-export const CHAIN_NAME      = 'AppSwap'
+export const CHAIN_ID        = import.meta.env.VITE_CHAIN_ID        ?? 'appswap-1'
+export const CHAIN_NAME      = import.meta.env.VITE_CHAIN_NAME      ?? 'AppSwap'
 export const RPC_URL         = import.meta.env.VITE_RPC_URL         ?? 'http://127.0.0.1:8545'
 export const COSMOS_RPC_URL  = import.meta.env.VITE_COSMOS_RPC_URL  ?? 'http://127.0.0.1:26657'
 export const COSMOS_REST_URL = import.meta.env.VITE_COSMOS_REST_URL ?? 'http://127.0.0.1:1317'
@@ -169,6 +169,23 @@ export const ROUTER_ABI = [
       { name: 'liquidity', type: 'uint256' },
     ],
   },
+  {
+    name: 'removeLiquidity',
+    type: 'function',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'poolAddress', type: 'address' },
+      { name: 'liquidity',   type: 'uint256' },
+      { name: 'amountAMin',  type: 'uint256' },
+      { name: 'amountBMin',  type: 'uint256' },
+      { name: 'to',          type: 'address' },
+      { name: 'deadline',    type: 'uint256' },
+    ],
+    outputs: [
+      { name: 'amountA', type: 'uint256' },
+      { name: 'amountB', type: 'uint256' },
+    ],
+  },
 ] as const
 
 export const ERC20_ABI = [
@@ -253,7 +270,6 @@ export const AMM_ABI = [
       { name: 'amountAMin', type: 'uint256' },
       { name: 'amountBMin', type: 'uint256' },
       { name: 'to',         type: 'address' },
-      { name: 'deadline',   type: 'uint256' },
     ],
     outputs: [
       { name: 'amountA', type: 'uint256' },
@@ -337,6 +353,29 @@ export const FEE_DISTRIBUTOR_EVENTS_ABI = [
       { name: 'recipient',      type: 'address', indexed: false },
       { name: 'rollupAmount',   type: 'uint256', indexed: false },
       { name: 'protocolAmount', type: 'uint256', indexed: false },
+    ],
+  },
+] as const
+
+export const AMM_EVENTS_ABI = [
+  {
+    name: 'Mint',
+    type: 'event',
+    inputs: [
+      { name: 'sender',    type: 'address', indexed: true  },
+      { name: 'amountA',   type: 'uint256', indexed: false },
+      { name: 'amountB',   type: 'uint256', indexed: false },
+      { name: 'liquidity', type: 'uint256', indexed: false },
+    ],
+  },
+  {
+    name: 'Burn',
+    type: 'event',
+    inputs: [
+      { name: 'sender',    type: 'address', indexed: true  },
+      { name: 'amountA',   type: 'uint256', indexed: false },
+      { name: 'amountB',   type: 'uint256', indexed: false },
+      { name: 'liquidity', type: 'uint256', indexed: false },
     ],
   },
 ] as const

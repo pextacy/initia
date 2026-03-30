@@ -1,15 +1,12 @@
 {
   "project_name": "AppSwap",
-  "track": "DeFi",
-  "chain_id": "appswap-1",
-  "rollup_txn_link": "https://scan.testnet.initia.xyz/initiation-2/txs/YOUR_TX_HASH",
-  "interwovenkit_used": true,
-  "initia_native_features": [
-    "session_ux",
-    "interwoven_bridge",
-    "initia_usernames"
-  ],
-  "team": ["your-github-handle"],
-  "demo_video": "https://youtube.com/YOUR_DEMO",
-  "repo": "https://github.com/YOUR_HANDLE/appswap"
+  "repo_url": "https://github.com/pextacy/initia",
+  "commit_sha": "451611da71f1a18f3f878da92e18c2c74f2c3a2c",
+  "rollup_chain_id": "evm-1",
+  "deployed_address": "0x619bcF71Ae6b42F7120Eb650C99c431456D8E9d5",
+  "vm": "evm",
+  "native_feature": "interwoven-bridge",
+  "core_logic_path": "contracts/Router.sol",
+  "native_feature_frontend_path": "frontend/src/components/SwapUI.tsx",
+  "demo_video_url": "https://www.loom.com/share/8c9d3ea6df054a2689f5fb6483d6737e"
 }

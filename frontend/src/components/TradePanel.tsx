@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { createPublicClient, http, formatUnits } from 'viem'
 import { useInterwovenKit } from '@initia/interwovenkit-react'
 import {
-  RPC_URL, CONTRACTS, POOL_REGISTRY_ABI, AMM_ABI, ERC20_ABI,
+  RPC_URL, CONTRACTS, POOL_REGISTRY_ABI, AMM_ABI, AMM_EVENTS_ABI, ERC20_ABI,
   ROUTER_EVENTS_ABI, TOKENS, type Token,
 } from '../constants'
 import { usePendingOrders } from '../hooks/usePendingOrders'
@@ -57,6 +57,14 @@ function useLivePrices() {
   }, [])
 
   return prices
+}
+
+function timeAgo(ts: number): string {
+  const diff = Math.floor(Date.now() / 1000) - ts
+  if (diff < 60)    return `${diff}s ago`
+  if (diff < 3600)  return `${Math.floor(diff / 60)}m ago`
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`
+  return `${Math.floor(diff / 86400)}d ago`
 }
 
 type PanelTab = 'positions' | 'orders' | 'balances' | 'order_history' | 'position_history'
@@ -196,6 +204,7 @@ interface SwapEvent {
   amountIn:  bigint
   amountOut: bigint
   blockNumber: bigint
+  timestamp?: number
 }
 
 function useOrderHistory(hexAddress: string | undefined) {
@@ -220,14 +229,140 @@ function useOrderHistory(hexAddress: string | undefined) {
           toBlock:   latest,
         })
         if (!cancelled) {
-          setEvents(logs.reverse().slice(0, 50).map(l => ({
-            txHash:      l.transactionHash ?? '',
-            blockNumber: l.blockNumber ?? 0n,
-            tokenIn:     (l.args as { tokenIn: string }).tokenIn,
-            tokenOut:    (l.args as { tokenOut: string }).tokenOut,
-            amountIn:    (l.args as { amountIn: bigint }).amountIn,
-            amountOut:   (l.args as { amountOut: bigint }).amountOut,
-          })))
+          const evtList = await Promise.all(
+            logs.reverse().slice(0, 50).map(async l => {
+              let timestamp: number | undefined
+              try {
+                if (l.blockNumber) {
+                  const block = await client.getBlock({ blockNumber: l.blockNumber })
+                  timestamp = Number(block.timestamp)
+                }
+              } catch {}
+              return {
+                txHash:      l.transactionHash ?? '',
+                blockNumber: l.blockNumber ?? 0n,
+                tokenIn:     (l.args as { tokenIn: string }).tokenIn,
+                tokenOut:    (l.args as { tokenOut: string }).tokenOut,
+                amountIn:    (l.args as { amountIn: bigint }).amountIn,
+                amountOut:   (l.args as { amountOut: bigint }).amountOut,
+                timestamp,
+              }
+            })
+          )
+          if (!cancelled) setEvents(evtList)
+        }
+      } catch {} finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+
+    return () => { cancelled = true }
+  }, [hexAddress])
+
+  return { events, loading }
+}
+
+// ── LP Mint/Burn history ──────────────────────────────────────────────────────
+interface LPEvent {
+  type:        'add' | 'remove'
+  poolAddress: string
+  tokenA:      Token
+  tokenB:      Token
+  amountA:     bigint
+  amountB:     bigint
+  liquidity:   bigint
+  txHash:      string
+  blockNumber: bigint
+  timestamp?:  number
+}
+
+function useLPHistory(hexAddress: string | undefined) {
+  const [events,  setEvents]  = useState<LPEvent[]>([])
+  const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    if (!hexAddress || !CONTRACTS.POOL_REGISTRY || CONTRACTS.POOL_REGISTRY === ZERO) return
+    let cancelled = false
+    setLoading(true)
+
+    ;(async () => {
+      try {
+        const ids = await client.readContract({
+          address: CONTRACTS.POOL_REGISTRY as `0x${string}`,
+          abi: POOL_REGISTRY_ABI, functionName: 'getAllPoolIds',
+        }) as `0x${string}`[]
+
+        const latest     = await client.getBlockNumber()
+        const startBlock = latest > 10000n ? latest - 10000n : 0n
+        const result: LPEvent[] = []
+
+        for (const id of ids) {
+          const cfg = await client.readContract({
+            address: CONTRACTS.POOL_REGISTRY as `0x${string}`,
+            abi: POOL_REGISTRY_ABI, functionName: 'get_pool', args: [id],
+          }) as { tokenA: string; tokenB: string; poolAddress: string; active: boolean }
+
+          if (!cfg.active) continue
+          const tA = tokenInfo(cfg.tokenA)
+          const tB = tokenInfo(cfg.tokenB)
+          if (!tA || !tB) continue
+
+          const [mints, burns] = await Promise.all([
+            client.getContractEvents({
+              address: cfg.poolAddress as `0x${string}`,
+              abi: AMM_EVENTS_ABI, eventName: 'Mint',
+              args: { sender: hexAddress as `0x${string}` },
+              fromBlock: startBlock, toBlock: latest,
+            }),
+            client.getContractEvents({
+              address: cfg.poolAddress as `0x${string}`,
+              abi: AMM_EVENTS_ABI, eventName: 'Burn',
+              args: { sender: hexAddress as `0x${string}` },
+              fromBlock: startBlock, toBlock: latest,
+            }),
+          ])
+
+          for (const log of mints) {
+            let timestamp: number | undefined
+            try {
+              if (log.blockNumber) {
+                const block = await client.getBlock({ blockNumber: log.blockNumber })
+                timestamp = Number(block.timestamp)
+              }
+            } catch {}
+            result.push({
+              type: 'add', poolAddress: cfg.poolAddress, tokenA: tA, tokenB: tB,
+              amountA:   (log.args as { amountA: bigint }).amountA,
+              amountB:   (log.args as { amountB: bigint }).amountB,
+              liquidity: (log.args as { liquidity: bigint }).liquidity,
+              txHash:    log.transactionHash ?? '',
+              blockNumber: log.blockNumber ?? 0n,
+              timestamp,
+            })
+          }
+          for (const log of burns) {
+            let timestamp: number | undefined
+            try {
+              if (log.blockNumber) {
+                const block = await client.getBlock({ blockNumber: log.blockNumber })
+                timestamp = Number(block.timestamp)
+              }
+            } catch {}
+            result.push({
+              type: 'remove', poolAddress: cfg.poolAddress, tokenA: tA, tokenB: tB,
+              amountA:   (log.args as { amountA: bigint }).amountA,
+              amountB:   (log.args as { amountB: bigint }).amountB,
+              liquidity: (log.args as { liquidity: bigint }).liquidity,
+              txHash:    log.transactionHash ?? '',
+              blockNumber: log.blockNumber ?? 0n,
+              timestamp,
+            })
+          }
+        }
+
+        if (!cancelled) {
+          result.sort((a, b) => Number(b.blockNumber - a.blockNumber))
+          setEvents(result.slice(0, 50))
         }
       } catch {} finally {
         if (!cancelled) setLoading(false)
@@ -248,6 +383,7 @@ export function TradePanel() {
   const { positions, loading: posLoading }   = usePositions(hexAddress)
   const { balances,  loading: balLoading }   = useAllBalances(hexAddress)
   const { events,    loading: evtLoading }   = useOrderHistory(hexAddress)
+  const { events: lpEvents, loading: lpLoading } = useLPHistory(hexAddress)
   const livePrices                           = useLivePrices()
 
   return (
@@ -437,7 +573,7 @@ export function TradePanel() {
               <table className="w-full text-xs">
                 <thead>
                   <tr className="border-b border-gray-800 text-gray-600 text-left">
-                    <Th>Pair</Th><Th>Sold</Th><Th>Received</Th><Th>Tx</Th>
+                    <Th>Pair</Th><Th>Sold</Th><Th>Received</Th><Th>Tx</Th><Th>Time</Th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-800/40">
@@ -466,6 +602,9 @@ export function TradePanel() {
                         <Td className="font-mono text-gray-600">
                           {e.txHash ? `${e.txHash.slice(0, 8)}…${e.txHash.slice(-6)}` : `#${e.blockNumber}`}
                         </Td>
+                        <Td className="text-gray-700">
+                          {e.timestamp ? timeAgo(e.timestamp) : '—'}
+                        </Td>
                       </tr>
                     )
                   })}
@@ -482,14 +621,51 @@ export function TradePanel() {
               <Empty>Connect wallet to view position history</Empty>
             ) : !CONTRACTS.POOL_REGISTRY || CONTRACTS.POOL_REGISTRY === ZERO ? (
               <Empty>Contracts not deployed</Empty>
+            ) : lpLoading ? (
+              <Loading />
+            ) : lpEvents.length === 0 ? (
+              <Empty>No liquidity history found</Empty>
             ) : (
-              <Empty>
-                No LP add/remove events found.
-                {' '}
-                <span className="text-gray-700">
-                  Liquidity events are recorded once you add or remove liquidity from a pool.
-                </span>
-              </Empty>
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-gray-800 text-gray-600 text-left">
+                    <Th>Action</Th><Th>Pool</Th><Th>Token A</Th><Th>Token B</Th><Th>LP</Th><Th>Time</Th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-800/40">
+                  {lpEvents.map((e, i) => (
+                    <tr key={`${e.txHash}-${i}`} className="hover:bg-gray-800/30">
+                      <Td>
+                        <span className={`px-1.5 py-0.5 rounded text-[10px] ${
+                          e.type === 'add'
+                            ? 'bg-green-900/30 text-green-400'
+                            : 'bg-red-900/30 text-red-400'
+                        }`}>
+                          {e.type === 'add' ? '+ Add' : '− Remove'}
+                        </span>
+                      </Td>
+                      <Td>
+                        <div className="flex items-center gap-1">
+                          <span className={`w-2 h-2 rounded-full ${e.tokenA.color} inline-block`} />
+                          {e.tokenA.symbol}/{e.tokenB.symbol}
+                        </div>
+                      </Td>
+                      <Td className="tabular-nums text-gray-300">
+                        {fmtAmt(parseFloat(formatUnits(e.amountA, e.tokenA.decimals)))} {e.tokenA.symbol}
+                      </Td>
+                      <Td className="tabular-nums text-gray-300">
+                        {fmtAmt(parseFloat(formatUnits(e.amountB, e.tokenB.decimals)))} {e.tokenB.symbol}
+                      </Td>
+                      <Td className="font-mono text-gray-600">
+                        {formatUnits(e.liquidity, 18).slice(0, 8)}
+                      </Td>
+                      <Td className="text-gray-700">
+                        {e.timestamp ? timeAgo(e.timestamp) : `#${e.blockNumber}`}
+                      </Td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             )}
           </div>
         )}

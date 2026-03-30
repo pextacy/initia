@@ -6,19 +6,44 @@ import { TokenIcon } from './TokenIcon'
 
 const client = createPublicClient({ transport: http(RPC_URL) })
 
-const APPROX_USD: Record<string, number> = {
-  USDC: 1,
-  USDT: 1,
-  INIT: 1.24,
-  WBTC: 65000,
-  ETH:  3400,
+const BYBIT_SYMBOL: Record<string, string> = {
+  INIT: 'INITUSDT', WBTC: 'BTCUSDT', BTC: 'BTCUSDT',
+  ETH: 'ETHUSDT', TIA: 'TIAUSDT', milkTIA: 'TIAUSDT',
+  ATOM: 'ATOMUSDT', stATOM: 'ATOMUSDT', INJ: 'INJUSDT',
+  OSMO: 'OSMOUSDT', SEI: 'SEIUSDT', BNB: 'BNBUSDT', SOL: 'SOLUSDT',
+}
+
+function useLivePrices() {
+  const [prices, setPrices] = useState<Record<string, number>>({ USDC: 1, USDT: 1 })
+  useEffect(() => {
+    const symbols = [...new Set(Object.values(BYBIT_SYMBOL))]
+    async function fetch_() {
+      const updated: Record<string, number> = { USDC: 1, USDT: 1 }
+      await Promise.all(symbols.map(async sym => {
+        try {
+          const res  = await fetch(`https://api.bybit.com/v5/market/tickers?category=spot&symbol=${sym}`)
+          const json = await res.json()
+          const p    = parseFloat(json?.result?.list?.[0]?.lastPrice ?? '0')
+          if (p > 0) updated[sym] = p
+        } catch {}
+      }))
+      const mapped: Record<string, number> = { USDC: 1, USDT: 1 }
+      for (const [tok, sym] of Object.entries(BYBIT_SYMBOL)) {
+        if (updated[sym]) mapped[tok] = updated[sym]
+      }
+      setPrices(mapped)
+    }
+    fetch_()
+    const t = setInterval(fetch_, 30_000)
+    return () => clearInterval(t)
+  }, [])
+  return prices
 }
 
 interface TokenBalance {
   token: typeof TOKENS[number]
   raw:     bigint
   formatted: string
-  usd:     number
 }
 
 export function Portfolio() {
@@ -26,6 +51,7 @@ export function Portfolio() {
   const [balances, setBalances] = useState<TokenBalance[]>([])
   const [loading,  setLoading]  = useState(false)
   const [refresh,  setRefresh]  = useState(0)
+  const livePrices = useLivePrices()
 
   useEffect(() => {
     if (!hexAddress) return
@@ -42,10 +68,9 @@ export function Portfolio() {
             args: [hexAddress as `0x${string}`],
           }) as bigint
           const formatted = formatUnits(raw, token.decimals)
-          const usd = parseFloat(formatted) * (APPROX_USD[token.symbol] ?? 0)
-          return { token, raw, formatted, usd }
+          return { token, raw, formatted }
         } catch {
-          return { token, raw: 0n, formatted: '0', usd: 0 }
+          return { token, raw: 0n, formatted: '0' }
         }
       })
     ).then(results => {
@@ -65,7 +90,10 @@ export function Portfolio() {
     )
   }
 
-  const totalUsd = balances.reduce((s, b) => s + b.usd, 0)
+  const totalUsd = balances.reduce((s, b) => {
+    const price = livePrices[b.token.symbol] ?? 0
+    return s + parseFloat(b.formatted) * price
+  }, 0)
 
   return (
     <div className="rounded-2xl border border-gray-800 bg-gray-900 overflow-hidden">
@@ -96,14 +124,18 @@ export function Portfolio() {
       {/* Allocation bar */}
       {totalUsd > 0 && (
         <div className="px-4 py-2 flex gap-0.5 overflow-hidden">
-          {balances.filter(b => b.usd > 0).map(b => (
-            <div
-              key={b.token.address}
-              className={`h-1.5 rounded-full ${b.token.color} transition-all duration-500`}
-              style={{ width: `${(b.usd / totalUsd) * 100}%` }}
-              title={`${b.token.symbol}: ${((b.usd / totalUsd) * 100).toFixed(1)}%`}
-            />
-          ))}
+          {balances.map(b => {
+            const usd = parseFloat(b.formatted) * (livePrices[b.token.symbol] ?? 0)
+            if (usd <= 0) return null
+            return (
+              <div
+                key={b.token.address}
+                className={`h-1.5 rounded-full ${b.token.color} transition-all duration-500`}
+                style={{ width: `${(usd / totalUsd) * 100}%` }}
+                title={`${b.token.symbol}: ${((usd / totalUsd) * 100).toFixed(1)}%`}
+              />
+            )
+          })}
         </div>
       )}
 
@@ -124,7 +156,10 @@ export function Portfolio() {
             </div>
           ))
         ) : (
-          balances.map(b => (
+          balances.map(b => {
+            const price = livePrices[b.token.symbol] ?? 0
+            const usd   = parseFloat(b.formatted) * price
+            return (
             <div key={b.token.address} className="px-4 py-3 flex items-center gap-3">
               <TokenIcon token={b.token} size="lg" />
               <div className="flex-1 min-w-0">
@@ -138,21 +173,22 @@ export function Portfolio() {
                     : '0'}
                 </p>
                 <p className="text-xs text-gray-600">
-                  {b.usd > 0
-                    ? `$${b.usd.toLocaleString('en-US', { maximumFractionDigits: 2 })}`
+                  {usd > 0
+                    ? `$${usd.toLocaleString('en-US', { maximumFractionDigits: 2 })}`
                     : '—'
                   }
                 </p>
               </div>
-              {totalUsd > 0 && b.usd > 0 && (
+              {totalUsd > 0 && usd > 0 && (
                 <div className="text-right w-12">
                   <p className="text-[11px] text-gray-600">
-                    {((b.usd / totalUsd) * 100).toFixed(1)}%
+                    {((usd / totalUsd) * 100).toFixed(1)}%
                   </p>
                 </div>
               )}
             </div>
-          ))
+            )
+          })
         )}
       </div>
     </div>

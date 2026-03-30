@@ -2,14 +2,11 @@ import { useState, useEffect } from 'react'
 import { createPublicClient, http, formatUnits, encodeFunctionData } from 'viem'
 import { useInterwovenKit } from '@initia/interwovenkit-react'
 import { RPC_URL, TOKENS, CONTRACTS, CHAIN_ID, POOL_REGISTRY_ABI, AMM_ABI, ROUTER_EVENTS_ABI } from '../constants'
+import { APPROX_USD } from '../utils/bybit'
 import { AddLiquidityModal } from './AddLiquidityModal'
 import { TokenIcon }         from './TokenIcon'
 
 const client = createPublicClient({ transport: http(RPC_URL) })
-
-const APPROX_USD: Record<string, number> = {
-  USDC: 1, USDT: 1, INIT: 1.24, WBTC: 65000, ETH: 3400,
-}
 
 function tokenInfo(address: string) {
   const t = TOKENS.find(t => t.address.toLowerCase() === address.toLowerCase())

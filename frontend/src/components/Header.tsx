@@ -33,15 +33,17 @@ export default function Header({ tab, onTabChange }: Props) {
     <header className="border-b border-gray-800 sticky top-0 z-20 bg-gray-950">
       <div className="max-w-5xl mx-auto px-4 h-14 flex items-center justify-between">
 
-        {/* Logo */}
-        <div className="flex items-center gap-2">
-          <div className="w-7 h-7 rounded-md bg-brand-600 flex items-center justify-center text-white text-xs font-bold">
-            A
-          </div>
+        {/* Logo — always far left */}
+        <div className="flex items-center gap-2 shrink-0">
+          <img
+            src="/appswap-logo.png"
+            alt="AppSwap"
+            className="h-8 w-auto"
+          />
           <span className="font-semibold text-white tracking-tight">AppSwap</span>
         </div>
 
-        {/* Nav tabs */}
+        {/* Nav tabs — center */}
         <nav className="flex items-center gap-0.5 bg-gray-900 rounded-lg p-1 border border-gray-800">
           {tabs.map((t) => (
             <button
@@ -58,8 +60,8 @@ export default function Header({ tab, onTabChange }: Props) {
           ))}
         </nav>
 
-        {/* Wallet button + dropdown */}
-        <div className="relative">
+        {/* Wallet button + dropdown — far right */}
+        <div className="relative shrink-0">
           <button
             onClick={() => setMenuOpen((v) => !v)}
             className={`text-sm font-medium px-4 py-1.5 rounded-lg border transition-colors ${

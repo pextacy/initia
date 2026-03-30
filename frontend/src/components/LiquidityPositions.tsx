@@ -250,7 +250,7 @@ function RemoveLiquidityModal({
       const minA = (amountAOut * 95n) / 100n
       const minB = (amountBOut * 95n) / 100n
 
-      // Approve LP token to AMM
+      // Approve LP token to Router (Router pulls LP, AMM burns from Router)
       setStatus('approving')
       await requestTxSync({
         messages: [{
@@ -258,24 +258,24 @@ function RemoveLiquidityModal({
           value: {
             sender: address,
             contractAddr: position.poolAddress,
-            input: encodeFunctionData({ abi: AMM_ABI, functionName: 'approve', args: [position.poolAddress as `0x${string}`, maxUint256] }),
+            input: encodeFunctionData({ abi: AMM_ABI, functionName: 'approve', args: [CONTRACTS.ROUTER as `0x${string}`, maxUint256] }),
             value: '0', accessList: [], authList: [],
           },
         }],
       })
 
-      // Remove liquidity
+      // Remove liquidity via Router (supports deadline + nonReentrant)
       setStatus('removing')
       await requestTxSync({
         messages: [{
           typeUrl: '/minievm.evm.v1.MsgCall',
           value: {
             sender: address,
-            contractAddr: position.poolAddress,
+            contractAddr: CONTRACTS.ROUTER,
             input: encodeFunctionData({
-              abi: AMM_ABI,
+              abi: ROUTER_ABI,
               functionName: 'removeLiquidity',
-              args: [lpToRemove, minA, minB, hexAddress as `0x${string}`, deadline],
+              args: [position.poolAddress as `0x${string}`, lpToRemove, minA, minB, hexAddress as `0x${string}`, deadline],
             }),
             value: '0', accessList: [], authList: [],
           },

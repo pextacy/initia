@@ -5,6 +5,7 @@ import {
   ROUTER_EVENTS_ABI, FEE_DISTRIBUTOR_EVENTS_ABI, POOL_REGISTRY_ABI, AMM_ABI,
   TOKENS,
 } from '../constants'
+import { APPROX_USD } from '../utils/bybit'
 
 const client = createPublicClient({ transport: http(RPC_URL) })
 const ZERO   = '0x0000000000000000000000000000000000000000'
@@ -17,10 +18,7 @@ function tokenDec(addr: string) {
   return TOKENS.find(t => t.address.toLowerCase() === addr.toLowerCase())?.decimals ?? 18
 }
 function roughUSD(sym: string, amount: number) {
-  if (sym === 'USDC') return amount
-  if (sym === 'WBTC') return amount * 65000
-  if (sym === 'ETH')  return amount * 3400
-  return amount * 1.24  // INIT
+  return (APPROX_USD[sym] ?? 1) * amount
 }
 function fmtUSD(n: number) {
   if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(2)}M`

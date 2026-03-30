@@ -173,6 +173,94 @@ contract Router is ReentrancyGuard, Ownable {
     }
 
     // -------------------------------------------------------------------------
+    // Liquidity
+    // -------------------------------------------------------------------------
+
+    /// @notice Add liquidity to an existing pool. Router pulls tokens from caller,
+    ///         handles AMM token ordering, and refunds any unused amounts.
+    function addLiquidity(
+        address tokenA,
+        address tokenB,
+        uint256 amountADesired,
+        uint256 amountBDesired,
+        uint256 amountAMin,
+        uint256 amountBMin,
+        address to,
+        uint256 deadline
+    ) external notPaused nonReentrant returns (uint256 amountA, uint256 amountB, uint256 liquidity) {
+        require(block.timestamp <= deadline, "expired");
+
+        // Locate pool in registry
+        bytes32[] memory ids = registry.getAllPoolIds();
+        address poolAddr;
+        for (uint256 i = 0; i < ids.length; i++) {
+            IPoolRegistry.PoolConfig memory p;
+            try registry.get_pool(ids[i]) returns (IPoolRegistry.PoolConfig memory cfg) {
+                p = cfg;
+            } catch { continue; }
+            if (!p.active) continue;
+            if ((p.tokenA == tokenA && p.tokenB == tokenB) ||
+                (p.tokenA == tokenB && p.tokenB == tokenA)) {
+                poolAddr = p.poolAddress;
+                break;
+            }
+        }
+        require(poolAddr != address(0), "pool not found");
+
+        IAMM amm = IAMM(poolAddr);
+        address ammTokenA = amm.tokenA(); // AMM sorts by address; align caller's amounts
+
+        // Pull tokens from caller
+        IERC20(tokenA).safeTransferFrom(msg.sender, address(this), amountADesired);
+        IERC20(tokenB).safeTransferFrom(msg.sender, address(this), amountBDesired);
+
+        // Approve AMM for both tokens
+        IERC20(tokenA).forceApprove(poolAddr, amountADesired);
+        IERC20(tokenB).forceApprove(poolAddr, amountBDesired);
+
+        // Call AMM with amounts in AMM's token order
+        uint256 usedAmmA; uint256 usedAmmB;
+        if (ammTokenA == tokenA) {
+            (usedAmmA, usedAmmB, liquidity) = amm.addLiquidity(
+                amountADesired, amountBDesired, amountAMin, amountBMin, to
+            );
+            (amountA, amountB) = (usedAmmA, usedAmmB);
+        } else {
+            (usedAmmA, usedAmmB, liquidity) = amm.addLiquidity(
+                amountBDesired, amountADesired, amountBMin, amountAMin, to
+            );
+            (amountA, amountB) = (usedAmmB, usedAmmA);
+        }
+
+        // Refund unused dust
+        uint256 unusedA = amountADesired - amountA;
+        uint256 unusedB = amountBDesired - amountB;
+        if (unusedA > 0) {
+            IERC20(tokenA).forceApprove(poolAddr, 0);
+            IERC20(tokenA).safeTransfer(msg.sender, unusedA);
+        }
+        if (unusedB > 0) {
+            IERC20(tokenB).forceApprove(poolAddr, 0);
+            IERC20(tokenB).safeTransfer(msg.sender, unusedB);
+        }
+    }
+
+    /// @notice Remove liquidity from a pool. User must approve LP tokens to this Router.
+    function removeLiquidity(
+        address poolAddress,
+        uint256 liquidity,
+        uint256 amountAMin,
+        uint256 amountBMin,
+        address to,
+        uint256 deadline
+    ) external notPaused nonReentrant returns (uint256 amountA, uint256 amountB) {
+        require(block.timestamp <= deadline, "expired");
+        // Transfer LP tokens from user to this contract (AMM burns from msg.sender = Router)
+        IERC20(poolAddress).safeTransferFrom(msg.sender, address(this), liquidity);
+        (amountA, amountB) = IAMM(poolAddress).removeLiquidity(liquidity, amountAMin, amountBMin, to);
+    }
+
+    // -------------------------------------------------------------------------
     // Admin
     // -------------------------------------------------------------------------
 

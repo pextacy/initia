@@ -43,6 +43,7 @@ contract FeeDistributor is ReentrancyGuard, Ownable {
     }
 
     function setRegistry(address _registry) external onlyOwner {
+        require(_registry != address(0), "zero registry");
         registry = IPoolRegistry(_registry);
     }
 

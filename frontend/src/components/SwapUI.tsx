@@ -7,7 +7,7 @@ import { useQuote }         from '../hooks/useQuote'
 import { useTokenBalance }  from '../hooks/useTokenBalance'
 import { useSwap }          from '../hooks/useSwap'
 import { usePendingOrders } from '../hooks/usePendingOrders'
-import { getBybitSymbol as getBybitInfo } from '../utils/bybit'
+import { getBybitSymbol as getBybitInfo, APPROX_USD as BYBIT_APPROX_USD } from '../utils/bybit'
 import { type Token, CHAIN_ID } from '../constants'
 
 // ── Order types ────────────────────────────────────────────────────────────────
@@ -25,12 +25,9 @@ const ORDER_LABELS: Record<AllOrderType, string> = {
 }
 
 // ── USD price estimate ─────────────────────────────────────────────────────────
-const APPROX_USD: Record<string, number> = {
-  USDC: 1, USDT: 1, INIT: 1.24, WBTC: 65000, ETH: 3400,
-}
 function usdValue(amount: string, symbol?: string): string | null {
   if (!amount || !symbol || parseFloat(amount) <= 0) return null
-  const price = APPROX_USD[symbol]
+  const price = BYBIT_APPROX_USD[symbol]
   if (!price) return null
   const val = parseFloat(amount) * price
   if (val < 0.01) return null
@@ -117,10 +114,15 @@ export function SwapUI({
     triggeredOrders.forEach(async o => {
       markTriggered(o.id)
       try {
-        const minOut = 0n  // user accepted slippage when creating order
+        // Use order's stored slippage — triggerPrice is approx, calculate minOut from it
+        const slipBps = BigInt(o.slippageBps ?? 50)
+        const approxOut = BigInt(Math.floor(o.triggerPrice * 1e6)) * BigInt(Math.floor(parseFloat(o.amountIn) * 1e6)) / BigInt(1e12)
+        const minOut = approxOut > 0n ? (approxOut * (10000n - slipBps)) / 10000n : 0n
         await executeSwap(o.tokenInAddress, o.tokenOutAddress, o.amountIn, minOut, o.decimalsIn)
         markExecuted(o.id)
-      } catch {}
+      } catch {
+        // order stays in triggered state — user can cancel manually
+      }
     })
   }, [triggeredOrders.length])  // eslint-disable-line react-hooks/exhaustive-deps
 

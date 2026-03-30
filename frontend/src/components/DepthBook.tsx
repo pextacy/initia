@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import { createPublicClient, http } from 'viem'
 import { CONTRACTS, POOL_REGISTRY_ABI, AMM_ABI, RPC_URL } from '../constants'
 import type { Token } from '../constants'
-import { getBybitSymbol } from '../utils/bybit'
+import { getBybitSymbol, APPROX_USD } from '../utils/bybit'
 
 const client = createPublicClient({ transport: http(RPC_URL) })
 
@@ -42,6 +42,14 @@ function computeDepth(pool: PoolData): Depth {
   const k        = rIn * rOut
   const midPrice = rOut / rIn   // how many tokenOut per 1 tokenIn
 
+  // Guard against degenerate pool state
+  if (!isFinite(k) || k <= 0 || !isFinite(midPrice) || midPrice <= 0) {
+    const empty: DepthLevel[] = Array.from({ length: LEVELS }, (_, i) => ({
+      price: 0, size: 0, total: 0, pct: ((i + 1) / LEVELS) * 100,
+    }))
+    return { asks: [...empty].reverse(), bids: empty, midPrice: 0, spread: 0, spreadPct: 0, pool }
+  }
+
   // Adaptive step: use 0.2% per level so depth fits realistic AMM curve
   const stepPct = 0.002
 
@@ -52,7 +60,7 @@ function computeDepth(pool: PoolData): Depth {
     const newRIn = Math.sqrt(k / price)           // rIn shrinks as price rises (AMM sells tokenIn)
     const size   = Math.abs(prevRIn - newRIn)     // tokenIn moved from last level
     const total  = Math.abs(rIn - newRIn)
-    asks.push({ price, size, total, pct: 0 })
+    asks.push({ price, size: isFinite(size) ? size : 0, total: isFinite(total) ? total : 0, pct: 0 })
     prevRIn = newRIn
   }
 
@@ -63,18 +71,33 @@ function computeDepth(pool: PoolData): Depth {
     const newRIn = Math.sqrt(k / price)           // rIn grows as price falls (AMM buys tokenIn)
     const size   = Math.abs(newRIn - prevRInB)
     const total  = Math.abs(newRIn - rIn)
-    bids.push({ price, size, total, pct: 0 })
+    bids.push({ price, size: isFinite(size) ? size : 0, total: isFinite(total) ? total : 0, pct: 0 })
     prevRInB = newRIn
   }
 
   const maxTotal = Math.max(asks.at(-1)!.total, bids.at(-1)!.total)
-  asks.forEach(l => { l.pct = (l.total / maxTotal) * 100 })
-  bids.forEach(l => { l.pct = (l.total / maxTotal) * 100 })
+  if (maxTotal > 0) {
+    asks.forEach(l => { l.pct = (l.total / maxTotal) * 100 })
+    bids.forEach(l => { l.pct = (l.total / maxTotal) * 100 })
+  }
 
   const spread    = asks[0].price - bids[0].price
   const spreadPct = (spread / midPrice) * 100
 
   return { asks: [...asks].reverse(), bids, midPrice, spread, spreadPct, pool }
+}
+
+// ── Spot USD price helper (for cross-pair conversion) ─────────────────────────
+async function fetchSpotMidPrice(token: Token): Promise<number> {
+  const info = getBybitSymbol(token.symbol, 'USDT')
+  if (!info) return APPROX_USD[token.symbol] ?? 0
+  try {
+    const res  = await fetch(`https://api.bybit.com/v5/market/tickers?category=spot&symbol=${info.symbol}`)
+    if (!res.ok) return APPROX_USD[token.symbol] ?? 0
+    const json = await res.json()
+    const p    = parseFloat(json?.result?.list?.[0]?.lastPrice ?? '0')
+    return p > 0 ? p : (APPROX_USD[token.symbol] ?? 0)
+  } catch { return APPROX_USD[token.symbol] ?? 0 }
 }
 
 // ── Exchange fallback ─────────────────────────────────────────────────────────
@@ -89,9 +112,13 @@ const ZERO_ADDR = '0x0000000000000000000000000000000000000000'
 async function fetchFromExchange(tokenIn: Token, tokenOut: Token): Promise<Depth | null> {
   const info = getBybitSymbol(tokenIn.symbol, tokenOut.symbol)
   if (!info) return null
+
+  const isUSD = (s: string) => s === 'USDC' || s === 'USDT'
+
   try {
+    // Bybit spot orderbook only accepts limit ∈ {1, 25, 50, 200}; request 25 and slice later
     const res  = await fetch(
-      `https://api.bybit.com/v5/market/orderbook?category=spot&symbol=${info.symbol}&limit=${LEVELS}`
+      `https://api.bybit.com/v5/market/orderbook?category=spot&symbol=${info.symbol}&limit=25`
     )
     if (!res.ok) return null
     const json = await res.json()
@@ -115,6 +142,39 @@ async function fetchFromExchange(tokenIn: Token, tokenOut: Token): Promise<Depth
       rawAsks = newAsks
     }
 
+    // Cross-pair conversion: when Bybit symbol is USDT-quoted but tokenOut is not USD,
+    // prices need to be scaled to the actual quote currency.
+    //
+    // invert=false, tokenOut not USD (e.g. TIA/INIT via TIAUSDT):
+    //   Bybit gives price in USDT → multiply by 1/tokenOut_USD
+    //
+    // invert=true,  tokenIn  not USD (e.g. INIT/TIA via TIAUSDT):
+    //   After inversion prices are 1/tokenIn_USDT → multiply by tokenIn_USD
+    //   After inversion sizes  are USDT amounts   → divide  by tokenIn_USD
+    let priceScale = 1
+    let sizeScale  = 1
+
+    if (!isUSD(tokenOut.symbol) && !info.invert) {
+      const tokenOutUSD = await fetchSpotMidPrice(tokenOut)
+      if (tokenOutUSD > 0) priceScale = 1 / tokenOutUSD
+    } else if (!isUSD(tokenIn.symbol) && info.invert) {
+      const tokenInUSD = await fetchSpotMidPrice(tokenIn)
+      if (tokenInUSD > 0) { priceScale = tokenInUSD; sizeScale = 1 / tokenInUSD }
+    }
+
+    if (priceScale !== 1 || sizeScale !== 1) {
+      rawBids = rawBids
+        .map(([p, s]) => [p * priceScale, s * sizeScale] as [number, number])
+        .sort((a, b) => b[0] - a[0])
+      rawAsks = rawAsks
+        .map(([p, s]) => [p * priceScale, s * sizeScale] as [number, number])
+        .sort((a, b) => a[0] - b[0])
+    }
+
+    // Trim to display depth
+    rawBids = rawBids.slice(0, LEVELS)
+    rawAsks = rawAsks.slice(0, LEVELS)
+
     // Build cumulative DepthLevel arrays
     function toLevels(raw: [number, number][]): DepthLevel[] {
       let cum = 0
@@ -133,8 +193,8 @@ async function fetchFromExchange(tokenIn: Token, tokenOut: Token): Promise<Depth
       asks.forEach(l => { l.pct = (l.total / maxTotal) * 100 })
     }
 
-    const bestBid  = rawBids[0]?.[0] ?? 0
-    const bestAsk  = rawAsks[0]?.[0] ?? 0
+    const bestBid   = rawBids[0]?.[0] ?? 0
+    const bestAsk   = rawAsks[0]?.[0] ?? 0
     const midPrice  = (bestBid + bestAsk) / 2
     const spread    = bestAsk - bestBid
     const spreadPct = midPrice > 0 ? (spread / midPrice) * 100 : 0
@@ -145,15 +205,14 @@ async function fetchFromExchange(tokenIn: Token, tokenOut: Token): Promise<Depth
 }
 
 async function fetchDepth(tokenIn: Token, tokenOut: Token): Promise<FetchResult> {
-  async function fallback(): Promise<FetchResult> {
-    const ex = await fetchFromExchange(tokenIn, tokenOut)
-    if (ex) return { ok: true, depth: ex, source: 'exchange' }
-    return { ok: false, reason: 'no_data' }
-  }
+  // Always prefer live Bybit exchange data; fall back to on-chain AMM only when
+  // Bybit has no listing for the pair.
+  const ex = await fetchFromExchange(tokenIn, tokenOut)
+  if (ex) return { ok: true, depth: ex, source: 'exchange' }
 
-  // No contracts deployed — go straight to exchange / demo
+  // Bybit has no data for this pair — try on-chain AMM as a last resort
   if (!CONTRACTS.POOL_REGISTRY || CONTRACTS.POOL_REGISTRY === ZERO_ADDR) {
-    return fallback()
+    return { ok: false, reason: 'no_data' }
   }
 
   try {
@@ -192,29 +251,19 @@ async function fetchDepth(tokenIn: Token, tokenOut: Token): Promise<FetchResult>
         }) as Promise<string>,
       ])
 
-      // AMM sorts tokens by address — align to tokenIn/tokenOut using amm.tokenA()
       const ammIsIn  = ammTokenA.toLowerCase() === aIn
       const rIn  = Number(ammIsIn ? rA : rB) / 10 ** tokenIn.decimals
       const rOut = Number(ammIsIn ? rB : rA) / 10 ** tokenOut.decimals
 
-      if (rIn === 0 || rOut === 0) return fallback()
+      if (rIn === 0 || rOut === 0) break
 
       const pool: PoolData = { poolAddress: cfg.poolAddress, rIn, rOut }
       return { ok: true, depth: computeDepth(pool), source: 'onchain' }
     }
 
-    // No matching pool — use exchange
-    return fallback()
-  } catch (e) {
-    const msg = String(e)
-    if (
-      msg.includes('ECONNREFUSED') || msg.includes('fetch failed') ||
-      msg.includes('Failed to fetch') || msg.includes('Network request failed') ||
-      msg.includes('HTTP request failed')
-    ) {
-      return fallback()
-    }
-    return { ok: false, reason: 'rpc_error', detail: msg }
+    return { ok: false, reason: 'no_data' }
+  } catch {
+    return { ok: false, reason: 'no_data' }
   }
 }
 
@@ -227,6 +276,7 @@ function fmtPrice(p: number, ref: number): string {
 }
 
 function fmtSize(s: number): string {
+  if (!isFinite(s) || s <= 0) return '—'
   if (s >= 1_000_000) return `${(s / 1_000_000).toFixed(3)}M`
   if (s >= 1_000)     return `${(s / 1_000).toFixed(3)}K`
   if (s >= 1)         return s.toFixed(3)

@@ -20,7 +20,7 @@ type Tab = 'swap' | 'pools' | 'earn' | 'bridge' | 'stats' | 'leaderboard'
 // ── Trading terminal (Swap tab) ───────────────────────────────────────────────
 function TradingTerminal() {
   const [tokenIn,  setTokenIn]  = useState<Token | undefined>(TOKENS[0])
-  const [tokenOut, setTokenOut] = useState<Token | undefined>(TOKENS[1])
+  const [tokenOut, setTokenOut] = useState<Token | undefined>(TOKENS.length > 1 ? TOKENS[1] : undefined)
 
   return (
     <div className="flex flex-col overflow-x-hidden" style={{ minHeight: 'calc(100vh - 56px)' }}>

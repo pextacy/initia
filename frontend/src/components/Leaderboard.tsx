@@ -1,13 +1,11 @@
 import { useState, useEffect, useMemo } from 'react'
 import { createPublicClient, http } from 'viem'
 import { CONTRACTS, ROUTER_EVENTS_ABI, RPC_URL, TOKENS } from '../constants'
+import { APPROX_USD } from '../utils/bybit'
 
 const client = createPublicClient({ transport: http(RPC_URL) })
 const ZERO   = '0x0000000000000000000000000000000000000000'
 
-const APPROX_USD: Record<string, number> = {
-  USDC: 1, USDT: 1, INIT: 1.24, WBTC: 65000, ETH: 3400,
-}
 function tokenSym(addr: string) {
   return TOKENS.find(t => t.address.toLowerCase() === addr.toLowerCase())?.symbol ?? addr.slice(0, 6) + '…'
 }

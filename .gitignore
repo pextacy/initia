@@ -3,15 +3,37 @@ out/
 cache/
 broadcast/
 foundry.lock
+coverage/
+lcov.info
 
 # Node
 node_modules/
 frontend/dist/
 frontend/.env
+frontend/.env.local
+frontend/.env.*.local
 
 # Keys / secrets
 .env
+.env.local
+.env.*.local
 *.pem
+*.key
+*.secret
+*_private_key*
+*mnemonic*
+*seed_phrase*
+keystore/
+.keystore
+wallet.json
+*_wallet.json
+*.keystore
 
-# OS
+# Logs
+*.log
+logs/
+
+# OS / editor
 .DS_Store
+.idea/
+.vscode/settings.json

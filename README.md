@@ -6,6 +6,18 @@ Built for the **Initia Hackathon Season 1 · DeFi Track** · Submission deadline
 
 ---
 
+## Details
+
+AppSwap is a permissionless decentralized exchange built as a native Initia appchain on the DeFi track. Its core innovation is a cross-rollup fee-sharing model: any Initia rollup can register a liquidity pool with AppSwap and automatically earn a share of every swap routed through that pool — on-chain, in real time, with no intermediary.
+
+The architecture consists of three Solidity contracts: `Router.sol` handles swap execution and best-pool routing; `PoolRegistry.sol` stores every registered pool alongside its owner rollup and fee configuration; `FeeDistributor.sol` splits the 0.25% swap fee between the pool's rollup owner (0.20%) and the AppSwap protocol treasury (0.05%).
+
+AppSwap integrates all three required Initia-native features: **Interwoven Bridge** for cross-rollup token routing, **InterwovenKit session keys** for frictionless swap UX with no per-transaction popups, and **Initia Usernames (.init)** for human-readable wallet identity throughout the interface.
+
+The result is a flywheel — more rollups bring more liquidity, more liquidity attracts more users, more volume generates more fees for rollup owners.
+
+---
+
 ## What it does
 
 AppSwap is a fully on-chain DEX built on an Initia EVM appchain. Any rollup in the Initia ecosystem can register a liquidity pool and instantly start earning 20bps on every swap routed through it — no permission needed, no intermediary.

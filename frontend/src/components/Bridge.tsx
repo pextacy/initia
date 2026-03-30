@@ -77,7 +77,7 @@ export function Bridge() {
         }],
       })
 
-      setTxHash((result as { txHash?: string })?.txHash ?? null)
+      setTxHash((result as { tx_hash?: string })?.tx_hash ?? null)
       setStatus('success')
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Bridge failed'
